@@ -10,9 +10,10 @@ import matplotlib.patches as patches
 import matplotlib as mpl
 import matplotlib.animation as animation
 import math
-from planners.trajectory_planner import TrajectoryPlanner
+from planners.trajectory_planner import TrajectoryPlanner, VehicleTrajectoryPlanner, PedestrianTrajectoryPlanner
 from planners.maneuvers import right_turn_wait
 from maps.map_info import NYCMapInfo
+from future.types import no
 
 
 
@@ -20,23 +21,42 @@ from maps.map_info import NYCMapInfo
 
         
         
-    
+def simulate_trajectory(p_traj, v_traj,m1,m2):
+    draw_canvas(p_traj,v_traj,m1,m2)
         
     
     
-def draw_canvas():
-    
-    
+def draw_canvas(p_traj,v_traj,m1,m2):
+    '''
+    fig, ax = plt.subplots()
+    lane_divider = [(0,8),(5,8)]
+    #plt.plot([x[0] for x in ped_centerline], [x[1] for x in ped_centerline],'-')
+    plt.plot([x[0] for x in NYCMapInfo.vehicle_lane], [x[1] for x in NYCMapInfo.vehicle_lane],'--')
+    plt.plot([x[0] for x in NYCMapInfo.ped_lane], [x[1] for x in NYCMapInfo.ped_lane],'--')
+    plt.plot([x[0] for x in lane_divider], [x[1] for x in lane_divider],'--')
+    plt.plot([x[0] for x in NYCMapInfo.veh_centerline], [x[1] for x in NYCMapInfo.veh_centerline],'x')
+    plt.axis('equal')
+    plt.show()
+    '''
     
     lane_divider = [(0,8),(5,8)]
     indx = np.arange(len(NYCMapInfo.veh_centerline))
-    veh_motion = TrajectoryPlanner(NYCMapInfo.veh_centerline,right_turn_wait(3, 'lb'),'right_turn_wait')
-    veh_motion.generate_trajectory(6)
+    #veh_motion = TrajectoryPlanner(NYCMapInfo.veh_centerline,right_turn_wait(3, 'lb'),'right_turn_wait')
+    if p_traj is not None and v_traj is not None:
+        veh_motion = VehicleTrajectoryPlanner(NYCMapInfo.veh_centerline,[5,None,None,None,5],m1,None)
+        ped_motion = PedestrianTrajectoryPlanner(NYCMapInfo.ped_centerline,[1.38,1.38,1.38],m2,None)
+        veh_motion.trajectory = v_traj
+        ped_motion.trajectory = p_traj
+    else:
+        veh_motion = VehicleTrajectoryPlanner(NYCMapInfo.veh_centerline,[5,None,None,None,5],'turn','normal')
+        veh_motion.generate_trajectory(6)
+        
+        #ped_motion = TrajectoryPlanner(NYCMapInfo.ped_centerline,[3,2,3],'pedestrian_walk','aggressive')
+        ped_motion = PedestrianTrajectoryPlanner(NYCMapInfo.ped_centerline,[1.38,1.38,1.38],'walk','normal')
+        ped_motion.generate_trajectory(6)
+        
+    dist_gaps = [math.hypot(x[1]-y[1], x[2]-y[2]) for x,y in zip(ped_motion.trajectory,veh_motion.trajectory)]
     
-    ped_motion = TrajectoryPlanner(NYCMapInfo.ped_centerline,[3,2,3],'pedestrian_walk')
-    ped_motion.generate_trajectory(6)
-    
-    dist_gaps = [math.hypot(x[0]-x[1], y[0]-y[1]) for x,y in zip(ped_motion.trajectory,veh_motion.trajectory)]
     print('min distance gap',min(dist_gaps))
     
     #path_indx = np.arange(indx[0],indx[-1]+.01,.01)
@@ -60,6 +80,8 @@ def draw_canvas():
     hinge, = ax.plot(ped_motion.trajectory[0][1],ped_motion.trajectory[0][2],'^')
     #ax.add_patch(rect)
     plt.axis('equal')
+    if m1 is not None and m2 is not None:
+        plt.title(m1+','+m2)
     #plt.show()
     
     
@@ -100,8 +122,8 @@ def draw_canvas():
             cpl = np.dot(yaw_linel,xaxl)
             angl = np.rad2deg(np.arccos(cpl/(np.linalg.norm(yaw_linel)*np.linalg.norm(xaxl))))
             '''
-        rot_ang = 180-((ang-90)%360)
-        new_corn = veh_motion.trajectory[i][1]+.4*np.cos(np.deg2rad(rot_ang)), veh_motion.trajectory[i][2]+.4*np.sin(np.deg2rad(rot_ang))
+        #rot_ang = 180-((ang-90)%360)
+        #new_corn = veh_motion.trajectory[i][1]+.4*np.cos(np.deg2rad(rot_ang)), veh_motion.trajectory[i][2]+.4*np.sin(np.deg2rad(rot_ang))
         '''
         rot_angm = 180-((angm-90)%360)
         rot_angl = 180-((angl-90)%360)
@@ -142,5 +164,5 @@ def draw_canvas():
                               interval=100, blit=True, init_func=init)
     plt.show()
     
-
-draw_canvas()
+if __name__ == '__main__':
+    draw_canvas(None,None,None,None)

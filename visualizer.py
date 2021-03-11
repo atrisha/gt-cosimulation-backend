@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from collections import OrderedDict
 from matplotlib import animation
 from scipy.ndimage import gaussian_filter1d
+import math
 
 def gaussian_smoothing(a):
     x, y = a.T
@@ -27,9 +28,48 @@ def gaussian_smoothing(a):
     
     return x4,y4
 
+def rotate_line(o_x,o_y,X,Y,yaw):
+    F_X,F_Y = [],[]
+    a = yaw
+    h,k = o_x,o_y
+    ''' from https://pages.mtu.edu/~shene/COURSES/cs3621/NOTES/geometry/geo-tran.html
+    rotation_and_translation_matrix = np.asarray([[np.cos(a), -np.sin(a), h],\
+                                                 [np.sin(a), np.cos(a), k],\
+                                                 [0, 0, 1]])
+    '''
+    translation_matrix = np.asarray([[1, 0, -h],\
+                                    [0, 1, -k],\
+                                    [0, 0, 1]])
+    
+    rotation_matrix = np.asarray([[np.cos(a), np.sin(a), 0],\
+                                 [-np.sin(a), np.cos(a), 0],\
+                                 [0, 0, 1]])
+    
+    for x,y in zip(X,Y):
+        point = np.asarray([x, y, 1]).T
+        translated_point = np.matmul(translation_matrix,point)
+        #new_point = translated_point
+        new_point = np.matmul(rotation_matrix, translated_point)
+        F_X.append(new_point[0])
+        F_Y.append(new_point[1])
+    return F_X,F_Y
 
 class Visualization:
     
+    def show_lanes_trasformed(self,ax):
+        lanes,cluster_ids = self.show_lanes()
+        cols = ['r','g','b','y','c']
+        for i,l in enumerate(lanes):
+            RX,RY = rotate_line(-3,27,[x[0] for x in l],[x[1] for x in l], math.pi*.1)
+            print(cluster_ids[i],cols[i])
+            if cluster_ids[i] == 2:
+                ax.plot([-3.8,-4]+RX+[-9.8],[19,5]+RY+[-11.3],c=cols[i])
+            elif cluster_ids[i] == 1:
+                ax.plot(RX+[-9.6],RY+[-14],c=cols[i])
+            else:
+                ax.plot(RX,RY,c=cols[i])
+        #plt.show()
+        
       
     def show_lanes(self):
         db = sqlite3.connect('D:\\influence-net\\influence-net\\trajectories.db')
@@ -64,9 +104,11 @@ class Visualization:
             res = cursor.fetchone()
         
         db.close()
+        '''
         for l in lanes:
             plt.plot([x[0] for x in l],[x[1] for x in l])
         plt.show()
+        '''
         return lanes,cluster_ids 
     
     def show_nyc_trajectories_static(self):
@@ -110,11 +152,14 @@ class Visualization:
         for row in res:
             if (row[0],row[6]) not in pts: 
                 pts[(row[0],row[6])] = []
-            pts[(row[0],row[6])].append((float(row[4]),float(row[5])))
-            
+            #pts[(row[0],row[6])].append((float(row[4]),float(row[5])))
+            new_pt = rotate_line(-3,27,[float(row[4])],[float(row[5])], math.pi*.1)
+            #print(new_pt)
+            pts[(row[0],row[6])].append((new_pt[0][0],new_pt[1][0]))
         
         fig, ax = plt.subplots()
-        ax = plt.axes(xlim=(-13, 7), ylim=(0, 56))
+        ax = plt.axes(xlim=(-10, 10), ylim=(-20, 20))
+        self.show_lanes_trasformed(ax)
         scat = ax.scatter([], [], s=5)
         
         def init():
@@ -131,4 +176,4 @@ class Visualization:
         plt.show()
         
 viz = Visualization()
-viz.show_lanes()
+viz.show_nyc_trajectories_dynamic()
