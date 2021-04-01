@@ -263,6 +263,8 @@ class TrajectoryPlanner:
             self.trajectory = [(x[0],x[1],x[2]) for x in traj]
         else:
             all_trajs = dict()
+            if self.show_plots:
+                plt.figure()
             for m,v_profiles in self.velocity_profiles.items():
                 for vp_idx,v in enumerate(v_profiles):
                     traj = []
@@ -290,7 +292,12 @@ class TrajectoryPlanner:
                     if m not in all_trajs:
                         all_trajs[m] = []
                     all_trajs[m].append(traj)
+                    if self.show_plots:
+                        plt.plot([x[0] for x in traj], [x[3] for x in traj])
             self.all_trajectories = all_trajs
+            if self.show_plots:
+                plt.title("all velocity profles")
+                plt.show()
         
 class VehicleTrajectoryPlanner(TrajectoryPlanner):
     
@@ -340,6 +347,11 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
         
         self.velocity_profiles = dict()
         
+        if self.show_plots:
+            plt.figure()
+            plt.title("all vehicle proceed velocity profiles")
+            
+        
         for iter,vp in enumerate(self.all_velocity_profiles):
             
             this_vel_targets = list(vp)
@@ -370,10 +382,14 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
             self.t_s_map = {t:self.cs_t_s(t) for t in time_st}
             
             ''' fit the time scaled velocity curve'''
-            self.cs_v = CubicSpline(time_pts,this_vel_targets)
+            #self.cs_v = CubicSpline(time_pts,this_vel_targets)
+            self.cs_v = UnivariateSpline(time_pts,this_vel_targets)
+            if self.show_plots:
+                plt.plot(np.linspace(time_pts[0],time_pts[-1],100),[self.cs_v(x) for x in np.linspace(time_pts[0],time_pts[-1],100)])
+                
             
             max_vel = self.cs_v(find_maxima_minima(True, self.cs_v, horizon))
-            
+            min_vel = self.cs_v(find_maxima_minima(False, self.cs_v, horizon))
             self.cs_a = self.cs_v.derivative(1)
             self.cs_j = self.cs_a.derivative(1)
             '''
@@ -387,6 +403,8 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
             max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(horizon)])
             max_jerk = max([self.cs_j(x) for x in np.arange(horizon)])
             category = self.print_category(max_acc,max_lat_acc,max_vel,max_jerk)
+            if min_vel <= 0:
+                category = 'infeasible'
             if category != 'infeasible':
                 entry = {'func':copy.deepcopy(self.cs_v),
                          'target vels':this_vel_targets,'max_vel':max_vel,'max_acc':max_acc,'max_lat_acc':max_lat_acc,'max_jerk':max_jerk
@@ -396,7 +414,9 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                 self.velocity_profiles[category].append(entry)
                     
             print('target vels',this_vel_targets,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
-                
+        if self.show_plots:
+            plt.show()
+           
     def generate_wait_velocity_profiles(self):
         horizon = self.horizon
         indx = self.indx
@@ -510,9 +530,9 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
                 else:
                     _u = self.cs_v_s(s_pts[xidx-1])
                     _v =  self.cs_v_s(s_pts[xidx])
-                    _S = s_pts[xidx]
+                    _S = s_pts[xidx]-s_pts[xidx-1]
                     t = 2*_S/(_u+_v)
-                    time_pts.append(time_pts[-1]+t)
+                    time_pts.append(t+time_pts[-1])
             self.cs_t_s = CubicSpline(time_pts,s_pts)
             self.t_s_map = {t:self.cs_t_s(t) for t in time_st}
             
@@ -575,7 +595,7 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
             
             stop_horizon = o_r
                     
-            tcs = TriangulationCurve(self.v0,stop_horizon,100)
+            tcs = TriangulationCurve(self.v0,stop_horizon,10)
             all_v_profiles = [(stop_horizon,x) for x in tcs.curves()]
             
             for st_h,v in all_v_profiles:

@@ -693,13 +693,31 @@ if __name__ == '__main__':
     
     
     acts = Actions()
-    #acts.generate_actions(0,5,1.38,True)
+    acts.generate_actions(0,5,1.38,True)
     acts.insert_interaction_data()
     
     
     #analyze_max_min_resp()
+    '''
+    init_veh_vel = 5
+    init_ped_vel = 1.38
+    veh_trajs,ped_trajs = dict(), dict()
+    veh_waypoint = NYCMapInfo.veh_centerline
+    veh_waypoint_velocity = [(init_veh_vel,),(None,),(1,init_veh_vel),(None,),(init_veh_vel,10)]
+    ped_waypoint = NYCMapInfo.ped_centerline
+    ped_waypoint_velocity = [(init_ped_vel,),(init_ped_vel,1.8),(init_ped_vel,1.8)]
     
+    for veh_m in veh_maneuvers:
+        veh_motion = VehicleTrajectoryPlanner(veh_waypoint,veh_waypoint_velocity,veh_m,None)
+        veh_motion.generate_trajectory(True)
+        veh_trajs[veh_m] = veh_motion.all_trajectories
     
-    
+
+    for ped_m in ped_maneuver:
+        ped_motion = PedestrianTrajectoryPlanner(ped_waypoint,ped_waypoint_velocity,ped_m,None)
+        ped_motion.generate_trajectory(True)
+        ped_trajs[ped_m] = ped_motion.all_trajectories
+
+    '''
     
     

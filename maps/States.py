@@ -26,10 +26,9 @@ class States:
             print('---------------------',t,'secs ---------------------------------')
             for ag in ['pedestrian','vehicle']:
                 tot_states = 0
+                print("--",ag,'init states (s,x,y)',"--")
                 for manv in act_dict[ag]['maneuvers']:
-                    
-                        
-                    q_string = "SELECT MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X),ABS(INIT_POS_Y-Y) FROM TRAJECTORY_METADATA \
+                    q_string = "SELECT MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X),ABS(INIT_POS_Y-Y),X,Y FROM TRAJECTORY_METADATA \
                                 INNER JOIN TRAJECTORIES on TRAJECTORY_METADATA.TRAJ_ID = TRAJECTORIES.TRACK_ID \
                                     WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag+"' AND TRAJECTORIES.TIME="+str(t)+" \
                                     AND MANEUVER='"+manv+"'"
@@ -38,11 +37,22 @@ class States:
                     if len(res) == 0:
                         continue
                     speed = np.array([row[2] for row in res])
-                    traj_l = np.array([LA.norm([x[3],x[4]]) for x in res])
+                    traj_l = np.array([(LA.norm([x[3],x[4]]),x[5],x[6]) for x in res])
                     print(ag,manv)
                     speed_states = np.arange(np.amin(speed),np.amax(speed)+.3,.3)
                     trajs_l_states =  np.arange(np.amin(traj_l), np.amax(traj_l)+.5,.5)
+                    trajs_l_states = []
+                    for i,t_p in enumerate(traj_l):
+                        if i == 0:
+                            trajs_l_states.append((t_p[1],t_p[2]))
+                        else:
+                            if abs(traj_l[i-1][0] - t_p[0]) >= 0.5:
+                                trajs_l_states.append((t_p[1],t_p[2]))
+                        
                     num_states = len(speed_states)*len(trajs_l_states)
+                    all_init_states = list(itertools.product(speed_states,trajs_l_states))
+                    for i_s in all_init_states:
+                        print(i_s)
                     print('num states',num_states)
                     if num_states > 100:
                         brk = 1
