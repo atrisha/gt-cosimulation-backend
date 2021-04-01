@@ -108,23 +108,31 @@ class Utilities:
         
 class Actions:
     
-    def generate_actions(self,init_veh_vel,init_ped_vel, insert_into_db = False):
+    def generate_actions(self,init_time,init_veh_vel,init_ped_vel, insert_into_db = False):
+        
         
         veh_trajs,ped_trajs = dict(), dict()
+        veh_waypoint = NYCMapInfo.veh_centerline
+        veh_waypoint_velocity = [(init_veh_vel,),(None,),(1,init_veh_vel),(None,),(init_veh_vel,10)]
+        ped_waypoint = NYCMapInfo.ped_centerline
+        ped_waypoint_velocity = [(init_ped_vel,),(init_ped_vel,1.8),(init_ped_vel,1.8)]
+        
         for veh_m in veh_maneuvers:
-            veh_motion = VehicleTrajectoryPlanner(NYCMapInfo.veh_centerline,[init_veh_vel,None,None,None,init_veh_vel],veh_m,None)
-            veh_motion.generate_trajectory(6,True)
+            veh_motion = VehicleTrajectoryPlanner(veh_waypoint,veh_waypoint_velocity,veh_m,None)
+            veh_motion.generate_trajectory(True)
             veh_trajs[veh_m] = veh_motion.all_trajectories
-            
+        
+    
         for ped_m in ped_maneuver:
-            ped_motion = PedestrianTrajectoryPlanner(NYCMapInfo.ped_centerline,[init_ped_vel,init_ped_vel,init_ped_vel],ped_m,None)
-            ped_motion.generate_trajectory(6,True)
-            ped_trajs[ped_m] = ped_motion.all_trajectories     
+            ped_motion = PedestrianTrajectoryPlanner(ped_waypoint,ped_waypoint_velocity,ped_m,None)
+            ped_motion.generate_trajectory(True)
+            ped_trajs[ped_m] = ped_motion.all_trajectories
+        
         if insert_into_db:
             conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
             c = conn.cursor()
             i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
-            i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?)'
+            i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?)'
             traj_id = 1
             for ag_type_idx,traj_det_dict in enumerate([veh_trajs,ped_trajs]):
                 ag_type = 'vehicle' if ag_type_idx == 0 else 'pedestrian'
@@ -133,7 +141,7 @@ class Actions:
                     for traj_mode,tmd_v in tm_v.items():
                         for trj in tmd_v:
                             traj_entry = [(traj_id,float(x[1]),float(x[2]),float(x[3]),float(x[4]),x[6],x[0],None,None) for x in trj] 
-                            traj_mtdt_entry = [(traj_id,float(trj[0][1]),float(trj[0][2]),float(trj[0][3]),float(trj[0][4]),float(trj[-1][3]),traj_manv,traj_mode,ag_type)]
+                            traj_mtdt_entry = [(traj_id,float(trj[0][1]),float(trj[0][2]),float(trj[0][3]),float(trj[0][4]),float(trj[-1][3]),traj_manv,traj_mode,ag_type,init_time)]
                             traj_metadata.extend(traj_mtdt_entry)
                             trajs.extend(traj_entry)
                             traj_id += 1
@@ -517,6 +525,81 @@ def analyse_br():
             ax.plot(x, y, color='BLUE', alpha=0.7, linewidth=3, solid_capstyle='round', zorder=2)
     plt.show()
     
+def analyze_max_min_resp():
+    u = Utilities()
+    conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
+    c = conn.cursor()
+    ''' pedestrian's maxmin response '''
+    q_string = "SELECT A.TRAJ_1_ID, A.TRAJ_2_ID, B.MANEUVER, B.MANEUVER_MODE, C.MANEUVER, C.MANEUVER_MODE, A.DISTANCE_GAP, A.TRAJ_1_LENGTH, A.TRAJ_2_LENGTH \
+                FROM TRAJ_INTERACTIONS AS A INNER JOIN TRAJECTORY_METADATA AS B on A.TRAJ_1_ID = B.TRAJ_ID INNER JOIN TRAJECTORY_METADATA AS C on A.TRAJ_2_ID = C.TRAJ_ID \
+                "
+    c.execute(q_string)
+    res = c.fetchall()
+    interac_dict = dict()
+    for row in res:
+        #ttxp = 
+        if row[8] not in interac_dict:
+            interac_dict[row[8]] = []
+        interac_dict[row[8]].append(row)
+    X_lb_ub = []
+    ct,N = 0,len(interac_dict)
+    for p_fv,int_v in interac_dict.items():
+        
+        ct += 1
+        print('pedestrian responding',ct,'/',N)
+        '''
+        ped_manv = x[4]
+        veh_traj_length = x[7]
+        ped_traj_length = x[8]
+        '''
+        resp_vect = [(x[4],x[7],u.combine_utils(u.progress_payoff_dist(x[8], 1), u.calc_safe_payoff(x[6]), 0.5)) for x in int_v]
+        resp_vect.sort(key=lambda tup: tup[-1])
+        X_lb_ub.append((p_fv,resp_vect[0][1],resp_vect[0][2]))
+        
+    X_lb_ub.sort(key=lambda tup: tup[0])
+    plt.figure()
+    plt.plot([x[0] for x in X_lb_ub],[x[1] for x in X_lb_ub])
+    plt.title('worst case veh traj choice for ped\'s traj choice')
+    plt.figure()
+    plt.plot([x[0] for x in X_lb_ub],[x[2] for x in X_lb_ub])
+    plt.title('min util for traj choice (pedestrian)')
+    
+    
+    ''' vehicle maxmin to pedestrian trajectory choice'''
+    
+    q_string = "SELECT A.TRAJ_1_ID, A.TRAJ_2_ID, B.MANEUVER, B.MANEUVER_MODE, C.MANEUVER, C.MANEUVER_MODE, A.DISTANCE_GAP, A.TRAJ_1_LENGTH, A.TRAJ_2_LENGTH \
+                FROM TRAJ_INTERACTIONS AS A INNER JOIN TRAJECTORY_METADATA AS B on A.TRAJ_1_ID = B.TRAJ_ID INNER JOIN TRAJECTORY_METADATA AS C on A.TRAJ_2_ID = C.TRAJ_ID \
+                "
+    c.execute(q_string)
+    res = c.fetchall()
+    interac_dict = dict()
+    for row in res:
+        if row[7] not in interac_dict:
+            interac_dict[row[7]] = []
+        interac_dict[row[7]].append(row)
+    X_lb_ub = []
+    ct,N = 0,len(interac_dict)
+    for p_fv,int_v in interac_dict.items():
+        ct += 1
+        print('vehicle responding',ct,'/',N)
+        '''
+        veh_manv = x[2]
+        veh_traj_length = x[7]
+        ped_traj_length = x[8]
+        '''
+        resp_vect = [(x[2],x[8],u.combine_utils(u.progress_payoff_dist(x[7], 0), u.calc_safe_payoff(x[6]), 0.1)) for x in int_v]
+        resp_vect.sort(key=lambda tup: tup[-1])
+        X_lb_ub.append((p_fv,resp_vect[0][1],resp_vect[0][2]))
+        
+    X_lb_ub.sort(key=lambda tup: tup[0])
+    plt.figure()
+    plt.plot([x[0] for x in X_lb_ub],[x[1] for x in X_lb_ub])
+    plt.title('worst case pedest traj choice for veh\'s traj choice')
+    plt.figure()
+    plt.plot([x[0] for x in X_lb_ub],[x[2] for x in X_lb_ub])
+    plt.title('min util for traj choice (vehicle)')
+    plt.show()
+    
 def analyse_only_util_br():
     u = Utilities()
     conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
@@ -608,11 +691,15 @@ if __name__ == '__main__':
     plt.show()
     '''
     
-    '''
-    acts = Actions()
-    #acts.generate_actions(5,1.38,True)
-    acts.insert_interaction_data()
-    '''
     
-    analyse_br()
-   
+    acts = Actions()
+    #acts.generate_actions(0,5,1.38,True)
+    acts.insert_interaction_data()
+    
+    
+    #analyze_max_min_resp()
+    
+    
+    
+    
+    
