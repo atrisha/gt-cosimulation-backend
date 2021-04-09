@@ -200,8 +200,8 @@ def show_all_trajectories():
                     c.execute(q_string)
                     res = c.fetchall()
 '''
-s = TreeBuilder()
-s.build_final_tree()
+#s = TreeBuilder()
+#s.build_final_tree()
 
                 
                 

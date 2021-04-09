@@ -55,6 +55,13 @@ class TrajectoryFragment:
 
 class RangeEstimationModel:
     
+    '''
+    This is a model for estimating the range of the minimum and maximum distance gaps 
+    given the 2s, 4s, 6s distances of a trajectory.
+    
+    The basic idea of the model is to predict the range based on a k-NN type model.
+    '''
+    
     def fit(self,distgap_data):
         self.distgap_data = distgap_data
         
@@ -94,16 +101,57 @@ class RangeEstimationModel:
         self.model_6sec = ((np.amin(dist_6sec),np.amax(dist_6sec)),dist_6sec_model)   
         
     def _interpolate(self,idx,data_arr):
-        f=1
-    
+        next_pt, prev_pt = None, None
+        pred_pt = None
+        for fidx in np.arange(idx,data_arr.shape[0]):
+            if data_arr[fidx,0] != np.inf and data_arr[fidx,1] != -np.inf: 
+                next_pt = data_arr[fidx]
+                break
+        for bidx in np.arange(idx,-1,-1):
+            if data_arr[bidx,0] != np.inf and data_arr[bidx,1] != -np.inf: 
+                prev_pt = data_arr[bidx]
+                break
+        assert prev_pt is not None or next_pt is not None, "No interpolation reference found"
+        if next_pt is not None and prev_pt is not None:
+            pred_pt = np.asarray([np.mean(prev_pt[0],next_pt[0]),np.mean(prev_pt[1],next_pt[1])])
+        else:
+            pred_pt = prev_pt if prev_pt is not None else next_pt
+        return pred_pt
+        
+        
     def predict(self,X):
-        val_2sec = round(X[0],.1)
+        assert 1 <= len(X) <= 3, "Length of X should be 1 or 2 or 3 with 1,2,3 sec distances in meters" 
+        val_2sec_idx, val_4sec_idx, val_6sec_idx = None, None, None
+        pred_range_2s, pred_range_4s, pred_range_6s = None, None, None
+        print(X)
+        val_2sec = round(X[0],1)
         val_2sec_idx = int((self.model_2sec[0][1] - val_2sec) / (self.model_2sec[0][1]-self.model_2sec[0][0]) * (self.model_2sec[1].shape[0]-1))
-        if self.model_2sec[1][val_2sec_idx][0] != np.inf and self.model_2sec[1][val_2sec_idx][1] != -np.inf:
-            pred_range_2s = self.model_2sec
+        if len(X) > 1:
+            val_4sec = round(X[1],.1)
+            val_4sec_idx = int((self.model_4sec[0][1] - val_4sec) / (self.model_4sec[0][1]-self.model_4sec[0][0]) * (self.model_4sec[1].shape[0]-1))
+        if len(X) > 2:
+            val_6sec = round(X[2],.1)
+            val_6sec_idx = int((self.model_6sec[0][1] - val_6sec) / (self.model_6sec[0][1]-self.model_6sec[0][0]) * (self.model_6sec[1].shape[0]-1))
+        if self.model_2sec[1][val_2sec_idx,0] != np.inf and self.model_2sec[1][val_2sec_idx,1] != -np.inf:
+            pred_range_2s = self.model_2sec[1][val_2sec_idx]
         else:
             pred_range_2s = self._interpolate(val_2sec, self.model_2sec[1])
-        if len(X) > 1:
+        if val_4sec_idx is not None:
+            if self.model_4sec[1][val_4sec_idx,0] != np.inf and self.model_4sec[1][val_4sec_idx,1] != -np.inf:
+                pred_range_4s = self.model_4sec[1,val_4sec_idx]
+            else:
+                pred_range_4s = self._interpolate(val_4sec, self.model_4sec[1])
+        if val_6sec_idx is not None:
+            if self.model_6sec[1][val_6sec_idx,0] != np.inf and self.model_6sec[1][val_6sec_idx,1] != -np.inf:
+                pred_range_6s = self.model_6sec[1,val_6sec_idx]
+            else:
+                pred_range_6s = self._interpolate(val_6sec, self.model_6sec[1])
+        if len(X) == 1:
+            return pred_range_2s
+        elif len(X) == 2:
+            return (max(pred_range_2s[0],pred_range_4s[0]), min(pred_range_2s[1],pred_range_4s[1]))
+        else:
+            return (max(pred_range_2s[0],pred_range_4s[0],pred_range_6s[0]), min(pred_range_2s[1],pred_range_4s[1],pred_range_6s[1]))
             
             
         
@@ -284,8 +332,17 @@ class MinDistanceGapModel:
         print(sc)
         print(pr)
         '''
-        r_est_obj = RangeEstimationModel()
-        r_est_obj.fit(veh_distgap_data)
+        r_est_obj_veh = RangeEstimationModel()
+        r_est_obj_veh.fit(veh_distgap_data)
+        self.distgap_model_vehicle = r_est_obj_veh
+        
+        r_est_obj_ped = RangeEstimationModel()
+        r_est_obj_ped.fit(ped_distgap_data)
+        self.distgap_model_pedestrian = r_est_obj_ped
+        
+        
+        
+        
          
 m = MinDistanceGapModel()
 m.build_model()           
