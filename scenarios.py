@@ -31,7 +31,7 @@ def right_turn_scenarios():
             else:
                 del scenario_dict[k]
         print(file_id)
-        print(list(scenario_dict.keys()))
+        print(list([x*30 for x in scenario_dict.keys()]))
         conn.close()
         
 right_turn_scenarios()    

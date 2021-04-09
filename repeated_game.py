@@ -70,8 +70,10 @@ class Utilities:
         safe_utils = self.exp_dist_payoffs(dist_gap)
         return safe_utils
     
-    def calc_dist_gap(self,veh_traj,ped_traj):
-        dist_gap = min([math.hypot(x[1]-y[1], x[2]-y[2]) for x,y in zip(veh_traj,ped_traj)])
+    def calc_dist_gap(self,veh_traj,ped_traj,xy_indexes=None):
+        if xy_indexes is None:
+            xy_indexes = (1,2)
+        dist_gap = min([math.hypot(x[xy_indexes[0]]-y[xy_indexes[0]], x[xy_indexes[1]]-y[xy_indexes[1]]) for x,y in zip(veh_traj,ped_traj)])
         return dist_gap
     
     def calc_safe_payoff(self,dist_gap):
@@ -108,7 +110,21 @@ class Utilities:
         
 class Actions:
     
-    def generate_actions(self,init_time,init_veh_vel,init_ped_vel, insert_into_db = False):
+    def generate_agent_action(self,init_time,init_veh_vel,waypoint,waypoint_vels,manv,ag,horizon):
+        trajs = dict()
+        if ag == 'vehicle':
+            motion = VehicleTrajectoryPlanner(waypoint,waypoint_vels,manv,None,horizon)
+            motion.generate_trajectory(True)
+            trajs[manv] = motion.all_trajectories
+        else:
+            motion = PedestrianTrajectoryPlanner(waypoint,waypoint_vels,manv,None,horizon)
+            motion.generate_trajectory(True)
+            trajs[manv] = motion.all_trajectories
+        return trajs
+                
+        
+    
+    def generate_actions(self,init_time,init_veh_vel,init_ped_vel,horizon, insert_into_db = False):
         
         
         veh_trajs,ped_trajs = dict(), dict()
@@ -118,21 +134,22 @@ class Actions:
         ped_waypoint_velocity = [(init_ped_vel,),(init_ped_vel,1.8),(init_ped_vel,1.8)]
         
         for veh_m in veh_maneuvers:
-            veh_motion = VehicleTrajectoryPlanner(veh_waypoint,veh_waypoint_velocity,veh_m,None)
+            veh_motion = VehicleTrajectoryPlanner(veh_waypoint,veh_waypoint_velocity,veh_m,None,horizon)
             veh_motion.generate_trajectory(True)
             veh_trajs[veh_m] = veh_motion.all_trajectories
         
     
         for ped_m in ped_maneuver:
-            ped_motion = PedestrianTrajectoryPlanner(ped_waypoint,ped_waypoint_velocity,ped_m,None)
+            ped_motion = PedestrianTrajectoryPlanner(ped_waypoint,ped_waypoint_velocity,ped_m,None,horizon)
             ped_motion.generate_trajectory(True)
             ped_trajs[ped_m] = ped_motion.all_trajectories
         
         if insert_into_db:
+            parent_traj_id = None
             conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
             c = conn.cursor()
             i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
-            i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?)'
+            i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?,?)'
             traj_id = 1
             for ag_type_idx,traj_det_dict in enumerate([veh_trajs,ped_trajs]):
                 ag_type = 'vehicle' if ag_type_idx == 0 else 'pedestrian'
@@ -140,8 +157,8 @@ class Actions:
                 for traj_manv,tm_v in traj_det_dict.items():
                     for traj_mode,tmd_v in tm_v.items():
                         for trj in tmd_v:
-                            traj_entry = [(traj_id,float(x[1]),float(x[2]),float(x[3]),float(x[4]),x[6],x[0],None,None) for x in trj] 
-                            traj_mtdt_entry = [(traj_id,float(trj[0][1]),float(trj[0][2]),float(trj[0][3]),float(trj[0][4]),float(trj[-1][3]),traj_manv,traj_mode,ag_type,init_time)]
+                            traj_entry = [(traj_id,float(x[1]),float(x[2]),float(x[3]),float(x[4]),x[6],x[0],x[7],None) for x in trj] 
+                            traj_mtdt_entry = [(traj_id,float(trj[0][1]),float(trj[0][2]),float(trj[0][3]),float(trj[0][4]),float(trj[-1][3]),traj_manv,traj_mode,ag_type,init_time,parent_traj_id)]
                             traj_metadata.extend(traj_mtdt_entry)
                             trajs.extend(traj_entry)
                             traj_id += 1
@@ -691,11 +708,11 @@ if __name__ == '__main__':
     plt.show()
     '''
     
-    
+    '''
     acts = Actions()
-    acts.generate_actions(0,5,1.38,True)
+    acts.generate_actions(0,5,1.38,6,True)
     acts.insert_interaction_data()
-    
+    '''
     
     #analyze_max_min_resp()
     '''
@@ -717,7 +734,7 @@ if __name__ == '__main__':
         ped_motion = PedestrianTrajectoryPlanner(ped_waypoint,ped_waypoint_velocity,ped_m,None)
         ped_motion.generate_trajectory(True)
         ped_trajs[ped_m] = ped_motion.all_trajectories
-
     '''
+    
     
     

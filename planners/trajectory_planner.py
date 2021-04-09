@@ -129,10 +129,10 @@ WAIT_MANEUVERS = ['wait']
 class TrajectoryPlanner:
     
     show_plots = False
+    print_console = False
     
     
-    
-    def __init__(self,centerline,vel_pts,maneuver,mode):
+    def __init__(self,centerline,vel_pts,maneuver,mode,horizon):
         self.v0 = vel_pts[0][0]
         self.target_vels = vel_pts
         self.vel_pts = None
@@ -141,7 +141,7 @@ class TrajectoryPlanner:
         self.mode = mode
         if maneuver not in WAIT_MANEUVERS:
             self.build_velocity_lattice(vel_pts)
-        self.horizon = 6
+        self.horizon = horizon
     
     def build_velocity_lattice(self,vel_pts_range):
         v_ts = []
@@ -184,18 +184,36 @@ class TrajectoryPlanner:
         seg_l = [0]+ [math.hypot(x[1][0]-x[0][0],x[1][1]-x[0][1]) for x in zip(self.centerline[1:],self.centerline[:-1])]
         seg_l = [sum(seg_l[:i+1]) for i,x in enumerate(seg_l)]
         indx = [seg_l[i]/seg_l[-1] for i in np.arange(len(self.centerline))]
-        print(indx)
-        
-        
-        self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=2)
-        self.cs_y = UnivariateSpline(indx,[x[1] for x in self.centerline],k=2)
+        xspl_order,yspl_order = 2,2
+        if self.print_console:
+            print(indx)
+        if len(indx) > 2 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
+            self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=2)
+        else:
+            #self.cs_x = interp1d(indx,[x[0] for x in self.centerline])
+            self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=1)
+            xspl_order = 1
+        if len(indx) > 2 and not (min([x[1] for x in self.centerline]) == max([x[1] for x in self.centerline])):
+            try:
+                _x = indx
+                _y = [x[1] for x in self.centerline]
+                self.cs_y = UnivariateSpline(_x,_y,k=2)
+            except:
+                raise
+        else:
+            #self.cs_y = interp1d(indx,[x[1] for x in self.centerline])
+            self.cs_y = UnivariateSpline(indx,[x[1] for x in self.centerline],k=1)
+            yspl_order = 1
         self.path = [(x,self.cs_x(x),self.cs_y(x)) for x in indx]
-        xdd = self.cs_x.derivative(2) 
-        ydd = self.cs_y.derivative(2) 
+        xdd = self.cs_x.derivative(2) if xspl_order == 2 else None
+        ydd = self.cs_y.derivative(2) if yspl_order == 2 else None
         xd = self.cs_x.derivative(1)
         yd = self.cs_y.derivative(1)
         plot_indx_x = np.linspace(indx[0],indx[-1],100)
-        self.curvature = lambda x: abs(((xd(x)/yd(x))*(ydd(x)/xd(x)**2) - (yd(x)/xd(x))*(xdd(x)/yd(x)**2))) / np.power((xd(x)/yd(x))** 2 + (yd(x)/xd(x))** 2, 3 / 2)
+        if xdd is not None and ydd is not None:
+            self.curvature = lambda x: abs(((xd(x)/yd(x))*(ydd(x)/xd(x)**2) - (yd(x)/xd(x))*(xdd(x)/yd(x)**2))) / np.power((xd(x)/yd(x))** 2 + (yd(x)/xd(x))** 2, 3 / 2)
+        else:
+            self.curvature = lambda x: 0
         if self.show_plots:
             plt.figure()
             plt.title('path')
@@ -233,17 +251,18 @@ class TrajectoryPlanner:
                     if self.maneuver in ['wait'] and self.cs_v(t)==0:
                         stopped_traj = True
                     if not stopped_traj:
-                        traj.append((t,self.cs_x(s/self.arcl),self.cs_y(s/self.arcl),self.cs_v(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl)))
+                        yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
+                        traj.append((t,self.cs_x(s/self.arcl),self.cs_y(s/self.arcl),self.cs_v(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl),yaw))
                     else:
-                        traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0))
+                        traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7]))
                 else:
                     break
             max_vel,max_acc,max_jerk,max_lat_acc = max([x[3] for x in traj]),max([x[4] for x in traj]),max([x[5] for x in traj]),max([x[6] for x in traj])
-            
-            print('max_vel:',max_vel)
-            print('max_acc:',max_acc)
-            print('max_lat_acc:',max_lat_acc)
-            print('max_jerk:',max_jerk)
+            if self.print_console:
+                print('max_vel:',max_vel)
+                print('max_acc:',max_acc)
+                print('max_lat_acc:',max_lat_acc)
+                print('max_jerk:',max_jerk)
             
             if self.show_plots:
                 time_ax_x = np.linspace(start=0, stop=time_st[-1], num=100)
@@ -282,13 +301,16 @@ class TrajectoryPlanner:
                             if self.maneuver in ['wait'] and self.cs_v(t)==0:
                                 stopped_traj = True
                             if not stopped_traj:
-                                traj.append((t,self.cs_x(s/self.arcl),self.cs_y(s/self.arcl),self.cs_v(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl)))
+                                #math.atan2(self.cs_y(s/self.arcl)-traj[-1][2], self.cs_x(s/self.arcl)-traj[-1][1])
+                                yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
+                                traj.append((t,self.cs_x(s/self.arcl),self.cs_y(s/self.arcl),self.cs_v(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl),yaw))
                             else:
-                                traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0))
+                                traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7]))
                         else:
                             break
                     #max_vel,max_acc,max_jerk,max_lat_acc = max([x[3] for x in traj]),max([x[4] for x in traj]),max([x[5] for x in traj]),max([x[6] for x in traj])
-                    print('added trajectory',self.maneuver,self.mode,vp_idx,'max_acc',v['max_acc'],'max_vel',v['max_vel'],'length:',math.hypot(traj[-1][1]-traj[0][1], traj[-1][2]-traj[0][2]))
+                    if self.print_console:
+                        print('added trajectory',self.maneuver,self.mode,vp_idx,'max_acc',v['max_acc'],'max_vel',v['max_vel'],'length:',math.hypot(traj[-1][1]-traj[0][1], traj[-1][2]-traj[0][2]))
                     if m not in all_trajs:
                         all_trajs[m] = []
                     all_trajs[m].append(traj)
@@ -375,15 +397,17 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                     time_pts.append(t+time_pts[-1])
                     if t <= time_pts[-1]:
                         brk=1
-                
-            self.cs_t_s = CubicSpline(time_pts,s_pts)
+            try:
+                self.cs_t_s = CubicSpline(time_pts,s_pts)
+            except ValueError:
+                f=1
             if time_pts[-1] > 8:
                 brk = 1
             self.t_s_map = {t:self.cs_t_s(t) for t in time_st}
             
             ''' fit the time scaled velocity curve'''
             #self.cs_v = CubicSpline(time_pts,this_vel_targets)
-            self.cs_v = UnivariateSpline(time_pts,this_vel_targets)
+            self.cs_v = UnivariateSpline(time_pts,this_vel_targets,k=len(time_pts)-1)
             if self.show_plots:
                 plt.plot(np.linspace(time_pts[0],time_pts[-1],100),[self.cs_v(x) for x in np.linspace(time_pts[0],time_pts[-1],100)])
                 
@@ -412,8 +436,8 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                 if category not in self.velocity_profiles:
                     self.velocity_profiles[category] = []
                 self.velocity_profiles[category].append(entry)
-                    
-            print('target vels',this_vel_targets,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
+            if self.print_console:
+                print('target vels',this_vel_targets,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
         if self.show_plots:
             plt.show()
            
@@ -442,8 +466,8 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
         max_stop_dist = map.get_max_stop_dist(NYCMapInfo.veh_centerline[0])
         self.velocity_profiles = dict()
         for o_it,o_r in enumerate(np.linspace(horizon,1,5)):
-            
-            print('-------iter',o_it)
+            if self.print_console:
+                print('-------iter',o_it)
             
             
             
@@ -485,8 +509,8 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                     if category not in self.velocity_profiles:
                         self.velocity_profiles[category] = []
                     self.velocity_profiles[category].append(entry)
-                        
-                print('target vels',st_h,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
+                if self.print_console:       
+                    print('target vels',st_h,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
 
 
 class PedestrianTrajectoryPlanner(TrajectoryPlanner):
@@ -561,8 +585,8 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
                 if category not in self.velocity_profiles:
                     self.velocity_profiles[category] = []
                 self.velocity_profiles[category].append(entry)
-                    
-            print('target vels',this_vel_targets,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
+            if self.print_console:        
+                print('target vels',this_vel_targets,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
             
                 
     def generate_wait_velocity_profiles(self):
@@ -589,8 +613,8 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
         
         self.velocity_profiles = dict()
         for o_it,o_r in enumerate(np.linspace(1,3,5)):
-            
-            print('-------iter',o_it)
+            if self.print_console:
+                print('-------iter',o_it)
             ''' fit the time scaled velocity curve'''
             
             stop_horizon = o_r
@@ -625,8 +649,8 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
                     if category not in self.velocity_profiles:
                         self.velocity_profiles[category] = []
                     self.velocity_profiles[category].append(entry)
-                        
-                print('target vels',st_h,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
+                if self.print_console:      
+                    print('target vels',st_h,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
     
     def get_next_vel(self,iter):
         return self.vel_pts[0:-1] + [self.vel_pts[-1]]
