@@ -11,10 +11,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
+WAIT_ACTIONS = ['yield-to-merging','wait_for_lead_to_cross','wait-for-oncoming','decelerate-to-stop','wait-on-red','wait-for-pedestrian']
+
 class TestVehicleTurn(unittest.TestCase):
     
     def test_ws_freeturn(self):
-        rt_manv = 'wait'
+        rt_manv = 'wait-for-oncoming'
         st_manv = 'track_speed'
         """
         Test that trajectory generation works for west to south free turn
@@ -48,7 +50,16 @@ class TestVehicleTurn(unittest.TestCase):
         
         rt_trajs,st_trajs = dict(), dict()
         
+        ''' Some housekeeping to translate the internal maneuver codes '''
+        if rt_manv in WAIT_ACTIONS:
+            rt_manv = 'wait'
+        else:
+            rt_manv = 'turn'
+        if st_manv in WAIT_ACTIONS:
+            st_manv = 'wait'
+        
         ''' Setup the constraints object to generate the trajectory '''
+        
         if rt_manv == 'wait':
             rt_traj_constr = WaitTrajectoryConstraints(init_vel=8,waypoints=rt_path,stop_horizon_dist_sampling_range=(20,30),stop_horizon_time_sampling_range=(4,8))
         else:
@@ -91,6 +102,7 @@ class TestVehicleTurn(unittest.TestCase):
         
         plt.show()
         
+        ''' Just take one example, the one in sel_xx_traj, and show the animation '''
         
         fig, ax = plt.subplots()
         ax = plt.axes(xlim=(min([x[0] for x in sel_st_traj]+[x[0] for x in sel_rt_traj])-10, max([x[0] for x in sel_st_traj]+[x[0] for x in sel_rt_traj])+10), ylim=(min([x[1] for x in sel_st_traj]+[x[1] for x in sel_rt_traj])-10, max([x[1] for x in sel_st_traj]+[x[1] for x in sel_rt_traj])+10))
@@ -116,7 +128,7 @@ class TestVehicleTurn(unittest.TestCase):
         
         
     def test_se_leftturn(self):
-        lt_manv = 'turn'
+        lt_manv = 'proceed-turn'
         st_manv = 'track_speed'
         """
         Test that trajectory generation works for south to east free turn
@@ -144,8 +156,18 @@ class TestVehicleTurn(unittest.TestCase):
         lt_vel_pts = [(3,)] + [(None,) if i != len(np.arange(1,len(lt_path)-1))//2 else (3,8) for i in np.arange(1,len(lt_path)-1)] + [(8,11)]
         st_vel_pts = [(12,)] + [(None,)]*(len(st_path)-2) + [(8,14)]
         
+        ''' Some housekeeping to translate the internal maneuver codes '''
+        if lt_manv in WAIT_ACTIONS:
+            lt_manv = 'wait'
+        else:
+            lt_manv = 'turn'
+        if st_manv in WAIT_ACTIONS:
+            st_manv = 'wait'
+        
+        
         ''' Setup the constraints object to generate the trajectory '''
         lt_trajs,st_trajs = dict(), dict()
+        
         if lt_manv == 'wait':
             lt_traj_constr = WaitTrajectoryConstraints(init_vel=8,waypoints=lt_path,stop_horizon_dist_sampling_range=(20,30),stop_horizon_time_sampling_range=(4,8))
         else:
@@ -187,6 +209,7 @@ class TestVehicleTurn(unittest.TestCase):
         
         plt.show()
         
+        ''' Just take one example, the one in sel_xx_traj, and show the animation '''
         
         fig, ax = plt.subplots()
         ax = plt.axes(xlim=(min([x[0] for x in sel_st_traj]+[x[0] for x in sel_lt_traj])-10, max([x[0] for x in sel_st_traj]+[x[0] for x in sel_lt_traj])+10), ylim=(min([x[1] for x in sel_st_traj]+[x[1] for x in sel_lt_traj])-10, max([x[1] for x in sel_st_traj]+[x[1] for x in sel_lt_traj])+10))
