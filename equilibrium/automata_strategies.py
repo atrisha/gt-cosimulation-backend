@@ -6,7 +6,7 @@ Created on Apr 2, 2021
 
 import numpy as np
 
-class AccomodatingGamma:
+class AccommodatingGamma:
     ''' accomodates always. and turn only if best case waiting is below a safety threshold (gamma). '''
     def __init__(self,gamma):
         self.gamma = gamma

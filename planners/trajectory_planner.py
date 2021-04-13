@@ -19,6 +19,44 @@ import random
 import itertools
 
 
+class TrajectoryConstraints:
+    
+    def __init__(self, init_vel,waypoints):
+        self.waypoints = waypoints
+        self.init_vel = init_vel
+        
+    def set_limit_constraints(self,max_lat_acc_lims=5.6,max_vel_lims=16,max_acc_lims=3.6,max_jerk_lims=2):
+        self.max_lat_acc_lims = max_lat_acc_lims
+        self.max_vel_lims = max_vel_lims
+        self.max_acc_lims = max_acc_lims
+        self.max_jerk_lims = max_jerk_lims
+        
+class WaitTrajectoryConstraints(TrajectoryConstraints):
+    ''' 
+    stop_horizon_dist_sampling_range = (minimum distance in meters where the vehicle can stop, maximum distance in meters where the vehicle can stop)
+    stop_horizon_time_sampling_range = (minimum time in seconds when the vehicle can stop, maximum time in seconds when the vehicle can stop)
+    '''
+    def __init__(self,init_vel,waypoints,stop_horizon_dist_sampling_range,stop_horizon_time_sampling_range):
+        TrajectoryConstraints.__init__(self, init_vel,waypoints)
+        self.stop_horizon_dist_sampling_range = stop_horizon_dist_sampling_range
+        self.stop_horizon_time_sampling_range = stop_horizon_time_sampling_range
+
+class ProceedTrajectoryConstraints(TrajectoryConstraints):
+    '''
+    waypoint_vel_sampling_range = [(minimum velocity*,),...,(minimum velocity,maximum velocity),..,(minimum velocity*,maximum velocity*)]
+    * : mandatory
+    optional values can be passed as (None,)
+    should be sample length as the waypoints
+    '''
+    def __init__(self,waypoints,waypoint_vel_sampling_range):
+        assert len(waypoints) == len(waypoint_vel_sampling_range) , "Lengths should be same"
+        init_vel = waypoint_vel_sampling_range[0][0]
+        TrajectoryConstraints.__init__(self,init_vel, waypoints)
+        self.waypoint_vel_sampling_range = waypoint_vel_sampling_range
+        if len(waypoint_vel_sampling_range) > 2 and all_equal(waypoint_vel_sampling_range[1:-1]) and waypoint_vel_sampling_range[1] == (None,):
+            self.waypoint_vel_sampling_range = waypoint_vel_sampling_range[0:1] + [(None,) if i != len(np.arange(1,len(waypoints)-1))//2 else (np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][0]]),np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][1]])) for i in np.arange(1,len(waypoints)-1)] + waypoint_vel_sampling_range[-1:]
+        
+
 
 def find_maxima_minima(max,cs_v,thresh,guess=3):
     
@@ -31,6 +69,10 @@ def find_maxima_minima(max,cs_v,thresh,guess=3):
         res = minimize(f, x0=[guess], method='TNC', bounds=lc1)
     
     return res.x
+
+def all_equal(iterable):
+    g = itertools.groupby(iterable)
+    return next(g, True) and not next(g, False)
 
 class TriangulationCurve:
     
@@ -132,15 +174,19 @@ class TrajectoryPlanner:
     print_console = False
     
     
-    def __init__(self,centerline,vel_pts,maneuver,mode,horizon):
-        self.v0 = vel_pts[0][0]
-        self.target_vels = vel_pts
+    def __init__(self,traj_constr_obj, maneuver, mode, horizon):
+        if maneuver in WAIT_MANEUVERS and isinstance(traj_constr_obj, ProceedTrajectoryConstraints):
+            raise("Wait maneuvers should be passed WaitTrajectoryConstraints object")
+        if maneuver not in WAIT_MANEUVERS and isinstance(traj_constr_obj, WaitTrajectoryConstraints):
+            raise("Proceed maneuvers should be passed ProceedTrajectoryConstraints object")
+        self.traj_constr_obj = traj_constr_obj
+        self.v0 = traj_constr_obj.init_vel
         self.vel_pts = None
-        self.centerline = centerline
+        self.centerline = traj_constr_obj.waypoints
         self.maneuver = maneuver
         self.mode = mode
         if maneuver not in WAIT_MANEUVERS:
-            self.build_velocity_lattice(vel_pts)
+            self.build_velocity_lattice(traj_constr_obj.waypoint_vel_sampling_range)
         self.horizon = horizon
     
     def build_velocity_lattice(self,vel_pts_range):
@@ -169,9 +215,13 @@ class TrajectoryPlanner:
                     _v.append(v)
                 else:
                     nxt_valid_indx = next(i+idx for idx,item in enumerate(vp[i:]) if item is not None)
-                    prev_valid_indx = i-1
+                    prev_valid_indx = next(i-idx for idx,item in enumerate(reversed(vp[:i+1])) if item is not None)
                     prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
-                    intpl_v = prev_valid_prop*vp[prev_valid_indx] + (1-prev_valid_prop)*vp[nxt_valid_indx]
+                    try:
+                        intpl_v = prev_valid_prop*vp[prev_valid_indx] + (1-prev_valid_prop)*vp[nxt_valid_indx]
+                    except TypeError:
+                        f=1
+                        raise
                     _v.append(intpl_v)
             self.all_velocity_profiles.append(_v)
         
@@ -229,7 +279,7 @@ class TrajectoryPlanner:
     def generate_trajectory(self,all=None):
         horizon = self.horizon
         self.generate_path()
-        if self.maneuver in ['turn','walk']:
+        if self.maneuver in ['turn','walk','track_speed']:
             self.generate_proceed_velocity_profiles()
         else:
             self.generate_wait_velocity_profiles()
@@ -288,8 +338,19 @@ class TrajectoryPlanner:
                 for vp_idx,v in enumerate(v_profiles):
                     traj = []
                     self.cs_v = v['func']
-                    self.cs_a = self.cs_v.derivative(1)
-                    self.cs_j = self.cs_v.derivative(2)
+                    
+                    if isinstance(self.cs_v, TriangulationCurve):
+                        ord = 3
+                    else:
+                        ord = len(self.cs_v._eval_args)-1
+                    if ord > 1:
+                        self.cs_a = self.cs_v.derivative(1)
+                    else:
+                        self.cs_a = lambda x : 0
+                    if ord > 2:
+                        self.cs_j = self.cs_v.derivative(2)
+                    else:
+                        self.cs_j = lambda x : 0
                 
                     stopped_traj = False
                     time_st = np.arange(0,horizon+.1,.1)
@@ -336,8 +397,8 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
             if max_acc < 1.5 and max_jerk < 0.9 and max_lat_acc < 4:
                 return True 
             
-    def print_category(self,max_acc,max_lat_acc,max_vel,max_jerk):
-        if max_acc > 3.6 or max_jerk > 2 or max_lat_acc > 5.6:
+    def assign_mode(self,max_acc,max_lat_acc,max_vel,max_jerk):
+        if max_acc > self.traj_constr_obj.max_acc_lims or max_jerk > self.traj_constr_obj.max_jerk_lims or max_lat_acc > self.traj_constr_obj.max_lat_acc_lims or max_vel > self.traj_constr_obj.max_vel_lims:
             return 'infeasible'
         elif 2 < max_acc < 3.6 or 0.9 < max_jerk < 2 or 4 < max_lat_acc < 5.6:
             return 'aggressive' 
@@ -397,25 +458,30 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                     time_pts.append(t+time_pts[-1])
                     if t <= time_pts[-1]:
                         brk=1
-            try:
-                self.cs_t_s = CubicSpline(time_pts,s_pts)
-            except ValueError:
-                f=1
+            self.cs_t_s = CubicSpline(time_pts,s_pts)
+            
             if time_pts[-1] > 8:
                 brk = 1
             self.t_s_map = {t:self.cs_t_s(t) for t in time_st}
             
             ''' fit the time scaled velocity curve'''
             #self.cs_v = CubicSpline(time_pts,this_vel_targets)
-            self.cs_v = UnivariateSpline(time_pts,this_vel_targets,k=len(time_pts)-1)
+            ord = min(len(time_pts)-1,3)
+            self.cs_v = UnivariateSpline(time_pts,this_vel_targets,k=ord)
             if self.show_plots:
                 plt.plot(np.linspace(time_pts[0],time_pts[-1],100),[self.cs_v(x) for x in np.linspace(time_pts[0],time_pts[-1],100)])
                 
             
             max_vel = self.cs_v(find_maxima_minima(True, self.cs_v, horizon))
             min_vel = self.cs_v(find_maxima_minima(False, self.cs_v, horizon))
-            self.cs_a = self.cs_v.derivative(1)
-            self.cs_j = self.cs_a.derivative(1)
+            if ord > 1:
+                self.cs_a = self.cs_v.derivative(1)
+            else:
+                self.cs_a = lambda x : 0
+            if ord > 2:
+                self.cs_j = self.cs_a.derivative(1)
+            else:
+                self.cs_j = lambda x : 0
             '''
             max_acc = self.cs_a(find_maxima_minima(True, self.cs_a, horizon))
             f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/arcl)
@@ -426,7 +492,7 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
             f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/self.arcl)
             max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(horizon)])
             max_jerk = max([self.cs_j(x) for x in np.arange(horizon)])
-            category = self.print_category(max_acc,max_lat_acc,max_vel,max_jerk)
+            category = self.assign_mode(max_acc,max_lat_acc,max_vel,max_jerk)
             if min_vel <= 0:
                 category = 'infeasible'
             if category != 'infeasible':
@@ -465,7 +531,8 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
         map = NYCMapInfo() 
         max_stop_dist = map.get_max_stop_dist(NYCMapInfo.veh_centerline[0])
         self.velocity_profiles = dict()
-        for o_it,o_r in enumerate(np.linspace(horizon,1,5)):
+        h_end, h_start = self.traj_constr_obj.stop_horizon_time_sampling_range[1], self.traj_constr_obj.stop_horizon_time_sampling_range[0]
+        for o_it,o_r in enumerate(np.linspace(h_end, h_start,5)):
             if self.print_console:
                 print('-------iter',o_it)
             
@@ -484,8 +551,11 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                 max_vel = self.cs_v(find_maxima_minima(True, self.cs_v, horizon))
                 
                 stop_dist = scipy.integrate.quad(self.cs_v,0,stop_horizon)[0]
-                
+                '''
                 if stop_dist > max_stop_dist:
+                    continue
+                '''
+                if stop_dist > self.traj_constr_obj.stop_horizon_dist_sampling_range[1] or stop_dist < self.traj_constr_obj.stop_horizon_dist_sampling_range[0]:
                     continue
                 
                 self.cs_a = self.cs_v.derivative(1)
@@ -501,7 +571,7 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                 f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/self.arcl)
                 max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(0,horizon,.5)])
                 max_jerk = max([self.cs_j(x) for x in np.arange(0,horizon,.5)])
-                category = self.print_category(max_acc,max_lat_acc,max_vel,max_jerk)
+                category = self.assign_mode(max_acc,max_lat_acc,max_vel,max_jerk)
                 if category != 'infeasible':
                     entry = {'func':copy.deepcopy(self.cs_v),
                              'target stop pt':st_h,'max_vel':max_vel,'max_acc':max_acc,'max_lat_acc':max_lat_acc,'max_jerk':max_jerk
@@ -577,7 +647,7 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
             f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/self.arcl)
             max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(horizon)])
             max_jerk = max([self.cs_j(x) for x in np.arange(horizon)])
-            category = self.print_category(max_acc,max_lat_acc,max_vel,max_jerk)
+            category = self.assign_mode(max_acc,max_lat_acc,max_vel,max_jerk)
             if category != 'infeasible':
                 entry = {'func':copy.deepcopy(self.cs_v),
                          'target vels':this_vel_targets,'max_vel':max_vel,'max_acc':max_acc,'max_lat_acc':max_lat_acc,'max_jerk':max_jerk
@@ -641,7 +711,7 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
                 f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/self.arcl)
                 max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(0,horizon,.5)])
                 max_jerk = max([self.cs_j(x) for x in np.arange(0,horizon,.5)])
-                category = self.print_category(max_acc,max_lat_acc,max_vel,max_jerk)
+                category = self.assign_mode(max_acc,max_lat_acc,max_vel,max_jerk)
                 if category != 'infeasible':
                     entry = {'func':copy.deepcopy(self.cs_v),
                              'target stop pt':st_h,'max_vel':max_vel,'max_acc':max_acc,'max_lat_acc':max_lat_acc,'max_jerk':max_jerk
@@ -663,7 +733,7 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
             if max_vel <= 1.38 and max_acc < 1:
                 return True         
             
-    def print_category(self,max_acc,max_lat_acc,max_vel,max_jerk):
+    def assign_mode(self,max_acc,max_lat_acc,max_vel,max_jerk):
         if max_vel > 1.38 and max_acc < 1:
             return 'aggressive' 
         elif max_vel <= 1.38 and max_acc < 1:

@@ -48,11 +48,11 @@ def draw_canvas(p_traj,v_traj,m1,m2):
         veh_motion.trajectory = v_traj
         ped_motion.trajectory = p_traj
     else:
-        veh_motion = VehicleTrajectoryPlanner(NYCMapInfo.veh_centerline,[5,None,None,None,5],'turn','normal')
+        veh_motion = VehicleTrajectoryPlanner(NYCMapInfo.veh_centerline,[(5,),(None,),(None,),(None,),(5,10)],'turn','normal',6)
         veh_motion.generate_trajectory(6)
         
         #ped_motion = TrajectoryPlanner(NYCMapInfo.ped_centerline,[3,2,3],'pedestrian_walk','aggressive')
-        ped_motion = PedestrianTrajectoryPlanner(NYCMapInfo.ped_centerline,[1.38,1.38,1.38],'walk','normal')
+        ped_motion = PedestrianTrajectoryPlanner(NYCMapInfo.ped_centerline,[(1.38,),(1.38,),(1.38,1.8)],'walk','normal')
         ped_motion.generate_trajectory(6)
         
     dist_gaps = [math.hypot(x[1]-y[1], x[2]-y[2]) for x,y in zip(ped_motion.trajectory,veh_motion.trajectory)]

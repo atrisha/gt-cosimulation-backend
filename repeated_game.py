@@ -529,17 +529,19 @@ def analyse_br():
         p2 = Polygon(list(zip([x[0] for x in X_lb_ub],[x[1] for x in X_lb_ub])) + list(zip([x[0] for x in X_lb_ub],[x[2] for x in X_lb_ub]))[::-1])
     
     print(p1.intersects(p2)) 
-    eq_reg = p1.intersection(p2)
-    print(eq_reg)
-    
+    #eq_reg = p1.intersection(p2)
+    #print(eq_reg)
+    '''
     fig = plt.figure()
     ax = fig.add_subplot(121)
+    
     for ob in eq_reg:
         x, y = ob.xy
         if len(x) == 1:
             ax.plot(x, y, 'o', color='BLUE', zorder=2)
         else:
             ax.plot(x, y, color='BLUE', alpha=0.7, linewidth=3, solid_capstyle='round', zorder=2)
+    '''
     plt.show()
     
 def analyze_max_min_resp():
@@ -714,7 +716,7 @@ if __name__ == '__main__':
     acts.insert_interaction_data()
     '''
     
-    #analyze_max_min_resp()
+    analyse_br()
     '''
     init_veh_vel = 5
     init_ped_vel = 1.38
