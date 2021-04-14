@@ -100,9 +100,7 @@ class Utilities:
         return prog_util
         
     def combine_utils(self,prog_util,safe_util,thresh):
-        if prog_util < thresh and safe_util < thresh:
-            return min(prog_util,safe_util)
-        elif safe_util < thresh:
+        if safe_util < thresh:
             return safe_util
         else:
             return prog_util
@@ -480,10 +478,10 @@ def analyse_br():
     plt.plot([x[2] for x in X_lb_ub],[x[0] for x in X_lb_ub],c=lighten_color('red', .5),label = 'pedestrian best response')
     if [x[1] for x in X_lb_ub] == [x[2] for x in X_lb_ub]:
         print('bounds are equal')
-        p1 = LineString(list(zip([x[1] for x in X_lb_ub],[x[0] for x in X_lb_ub])))
+        p1 = (LineString(list(zip([x[1] for x in X_lb_ub],[x[0] for x in X_lb_ub]))) , )
     else:
         print('bounds are unequal')
-        p1 = Polygon(list(zip([x[1] for x in X_lb_ub],[x[0] for x in X_lb_ub])) + list(zip([x[2] for x in X_lb_ub],[x[0] for x in X_lb_ub]))[::-1])
+        p1 = (LineString(list(zip([x[1] for x in X_lb_ub],[x[0] for x in X_lb_ub]))) , LineString(list(zip([x[2] for x in X_lb_ub],[x[0] for x in X_lb_ub]))))
     
     ''' vehicle best reponse to pedestrian trajectory choice'''
     
@@ -523,12 +521,19 @@ def analyse_br():
     plt.plot([x[0] for x in X_lb_ub],[x[2] for x in X_lb_ub],c=lighten_color('blue', .5),label = 'vehicle best response')
     if [x[1] for x in X_lb_ub] == [x[2] for x in X_lb_ub]:
         print('bounds are equal')
-        p2 = LineString(list(zip([x[0] for x in X_lb_ub],[x[1] for x in X_lb_ub])))
+        p2 = (LineString(list(zip([x[0] for x in X_lb_ub],[x[1] for x in X_lb_ub]))) , )
     else:
         print('bounds are unequal')
-        p2 = Polygon(list(zip([x[0] for x in X_lb_ub],[x[1] for x in X_lb_ub])) + list(zip([x[0] for x in X_lb_ub],[x[2] for x in X_lb_ub]))[::-1])
-    
-    print(p1.intersects(p2)) 
+        p2 = (LineString(list(zip([x[0] for x in X_lb_ub],[x[1] for x in X_lb_ub]))), LineString(list(zip([x[0] for x in X_lb_ub],[x[2] for x in X_lb_ub]))))
+        
+    if p1[0].intersects(p2[0]):
+        print('Equilibrium exists')
+        eq_pt_ubub = p1[0].intersection(p2[0])
+        lX,lY = p1[0].xy
+        print(eq_pt_ubub)
+    else:
+        print('Equilibrium doesn\'t exists')
+         
     #eq_reg = p1.intersection(p2)
     #print(eq_reg)
     '''

@@ -73,7 +73,7 @@ def construct_centerline(dist,ag,v0):
 class TreeBuilder:
 
 
-    def build_initial_reachability_tree(self):
+    def build_initial_reachability_states(self):
         init_time = 0
         veh_init_vel = 5
         ped_init_vel = 1.38
@@ -159,7 +159,7 @@ class TreeBuilder:
         conn.close()
         
     
-    def build_final_tree(self):
+    def build_final_trajectories(self):
         #time_interval_axes = [[(0,2)], [(0,4),(2,2)]]
         time_interval_axes = [[(0,4)]]
         for time_intervals in time_interval_axes:
@@ -188,8 +188,8 @@ class TreeBuilder:
                 
        
     def build_complete_tree(self):
-        self.build_initial_reachability_tree()
-        self.build_final_tree()
+        self.build_initial_reachability_states()
+        self.build_final_trajectories()
 
 '''
 def show_all_trajectories():
@@ -201,7 +201,7 @@ def show_all_trajectories():
                     res = c.fetchall()
 '''
 #s = TreeBuilder()
-#s.build_final_tree()
+#s.build_final_trajectories()
 
                 
                 

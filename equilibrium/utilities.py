@@ -12,44 +12,10 @@ import matplotlib.pyplot as plt
 from sklearn.datasets import make_friedman2
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, WhiteKernel
-
+from equilibrium.game_tree import TrajectoryFragment
 show_plots = False
 
-class TrajectoryFragment:
-    
-    def __init__(self,time_range,traj_id,manv,manv_mode,init_time):
-        self.time_range = time_range
-        self.init_time = init_time
-        self.traj_id = traj_id
-        self.manv = manv
-        self.manv_mode = manv_mode
-    
-    def set_next_fragment(self, traj_fragment):
-        self.next_fragment = traj_fragment
-        
-    def is_last(self):
-        if self.time_range[1] == 6:
-            return True
-        else:
-            return False
-        
-    def load(self):
-        end_time = self.time_range[1] if self.time_range[1] == 6 else self.time_range[1]-self.init_time-0.01
-        conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
-        c = conn.cursor()
-        q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID="+str(self.traj_id)+" AND TRAJECTORIES.TIME BETWEEN "+str(int(self.time_range[0]-self.init_time))+" AND "+str(end_time)+" ORDER BY TIME"
-        c.execute(q_string)
-        res = c.fetchall()
-        loaded_traj_frag = res
-        loaded_traj = []
-        self.loaded_traj_frag = loaded_traj_frag
-        if not self.is_last():
-            loaded_traj = loaded_traj_frag + self.next_fragment.load()
-            self.loaded_traj = loaded_traj
-            return self.loaded_traj
-        else:
-            self.loaded_traj = loaded_traj_frag
-            return loaded_traj_frag
+
         
 
 
@@ -248,11 +214,13 @@ class MinDistanceGapModel:
         for m,t in pedestrian_trajectories.items():
             if len(t) > 50:
                 len_t = len(t)
+                print('pedestrian',m,len_t)
                 selected_indices = np.random.uniform(low=0,high=len_t, size=min(50,len_t),)
                 pedestrian_trajectories[m] = [t[int(idx)] for idx in selected_indices]
         for m,t in vehicle_trajectories.items():
             if len(t) > 50:
                 len_t = len(t)
+                print('vehicle',m,len_t)
                 selected_indices = np.random.uniform(low=0,high=len_t, size=min(50,len_t),)
                 vehicle_trajectories[m] = [t[int(idx)] for idx in selected_indices]
         for k,v in pedestrian_trajectories.items():
