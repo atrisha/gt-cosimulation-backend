@@ -8,10 +8,13 @@ Created on Apr 14, 2021
 import numpy as np
 import sqlite3
 import itertools
-from planners.planning_objects import VehicleState, PedestrianState
+from planners.planning_objects import VehicleState, PedestrianState, TrajectoryFragment
 import time
 import math
+from equilibrium.equilibria_calculation import SatisficingEquilibria
 from numpy import linalg as LA
+import copy
+
 
 show_plots = False
 
@@ -33,75 +36,14 @@ class TrajectoryCache:
             self.traj_cache[row[0]][time_range].append(row)
         
 
-class TrajectoryFragment:
-    
-    def __init__(self,time_range,traj_id,manv,manv_mode,init_time):
-        self.time_range = time_range
-        self.init_time = init_time
-        self.traj_id = traj_id
-        self.manv = manv
-        self.manv_mode = manv_mode
-        self._is_last = False
-        self.loaded = False
-    
-    def set_next_fragment(self, traj_fragment):
-        self.next_fragment = traj_fragment
-    
-    @property
-    def is_last(self):
-        return self._is_last or self.time_range[1] == 6
-    
-    @is_last.setter
-    def is_last(self, value):
-        self._is_last = value
-    
-    @property
-    def loaded(self):
-        return self._loaded
-    
-    @loaded.setter
-    def loaded(self, value):
-        self._loaded = value
-        
-    def load(self,t_cache = None):
-        if not self.loaded:
-            end_time = self.time_range[1] if self.time_range[1] == 6 else self.time_range[1]-self.init_time-0.01
-            if t_cache is not None and self.traj_id in t_cache:
-                res = t_cache[self.traj_id][self.time_range]
-            else:
-                conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
-                c = conn.cursor()
-                q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID="+str(self.traj_id)+" AND TRAJECTORIES.TIME BETWEEN "+str(int(self.time_range[0]-self.init_time))+" AND "+str(end_time)+" ORDER BY TIME"
-                c.execute(q_string)
-                res = c.fetchall()
-            loaded_traj_frag = res
-            loaded_traj = []
-            self.loaded_traj_frag = loaded_traj_frag
-            self.loaded = True
-        else:
-            loaded_traj_frag = self.loaded_traj_frag
-        if not self.is_last:
-            loaded_traj = loaded_traj_frag + self.next_fragment.load()
-            self.loaded_traj = loaded_traj
-            return self.loaded_traj
-        else:
-            self.loaded_traj = loaded_traj_frag
-            return self.loaded_traj
-        
-            
-    
-    def get_last(self):
-        _tf = self
-        while not _tf.is_last:
-                    _tf = _tf.next_fragment
-        return _tf
         
     
 class Node:
     
-    def __init__(self,level, path_from_root):
+    def __init__(self,level, path_from_root,_ext_id):
         self.level = level
         self.path_from_root = path_from_root
+        self._ext_id = _ext_id
     
     def load(self):
         if not self.is_root:
@@ -127,20 +69,29 @@ class Node:
             peds_path_from_root = self.path_from_root['pedestrian']
             v_tf = veh_path_from_root.get_last()
             p_tf = peds_path_from_root.get_last()
-            actions['vehicle'].append(v_tf)
-            actions['pedestrian'].append(p_tf)
+            self.actions = None
+            v_tf._next_node = None
+            p_tf._next_node = None
+                
         else:
-            for c in self.children:
+            for cidx,c in enumerate(self.children):
                 c.set_actions()
                 veh_path_from_root = c.path_from_root['vehicle']
                 peds_path_from_root = c.path_from_root['pedestrian']
-                v_tf = veh_path_from_root.get_last()
-                p_tf = peds_path_from_root.get_last()
+                v_tf = copy.copy(veh_path_from_root.get_last())
+                p_tf = copy.copy(peds_path_from_root.get_last())
+                v_tf._next_node = c
+                p_tf._next_node = c
                 actions['vehicle'].append(v_tf)
                 actions['pedestrian'].append(p_tf)
-        self.actions = actions
-            
-                
+            self.actions = actions
+            '''
+            assert len(actions['vehicle']) == len(self.children)
+            assert len(actions['pedestrian']) == len(self.children)
+            for i in np.arange(len(self.children)):
+                assert self.children[i] is self.actions['vehicle'][i]._next_node, i
+                assert self.children[i] is self.actions['pedestrian'][i]._next_node, i
+            '''
                     
     @property
     def is_root(self):
@@ -160,6 +111,8 @@ class Node:
         
 class GameTree:
     
+    counter = 1
+    
     def build_tree(self):
         print('building lattice nodes...')
         start_time = time.time()
@@ -168,7 +121,10 @@ class GameTree:
         level_nodes_6s = self.build_level_nodes(6)
         v_tcache_4_6 = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='vehicle')
         p_tcache_4_6 = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='pedestrian')
-        self.root = Node(0,None)
+        _ext_id = GameTree.counter
+        self.root = Node(0,None,_ext_id)
+        GameTree.counter += 1
+        
         for s_path,n in level_nodes_2s.items():
             n_children = []
             for n4s,n4 in level_nodes_4s.items():
@@ -185,7 +141,9 @@ class GameTree:
                             ptf = TrajectoryFragment(time_range=(4,6),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3])
                             vtf.load(v_tcache_4_6.traj_cache)
                             ptf.load(p_tcache_4_6.traj_cache)
-                            nd = Node(6,{'vehicle':vtf, 'pedestrian':ptf})
+                            _ext_id = GameTree.counter
+                            nd = Node(6,{'vehicle':vtf, 'pedestrian':ptf},_ext_id)
+                            GameTree.counter += 1
                             n6.append(nd)
                         for _n in n6:
                             _n.children = None
@@ -206,6 +164,9 @@ class GameTree:
         f=1 
             
     
+    def solve(self,eq_class):
+        
+        eq_class.solve(node = self.root)
         
     
     def build_level_nodes(self, level):
@@ -313,7 +274,9 @@ class GameTree:
                             ptf1.set_next_fragment(ptf2)
                         else:
                             ptf1.is_last = True
-                    nd = Node(level,{'vehicle':vtf1, 'pedestrian':ptf1})
+                    _ext_id = GameTree.counter
+                    nd = Node(level,{'vehicle':vtf1, 'pedestrian':ptf1}, _ext_id)
+                    GameTree.counter += 1
                     #nd.load()
                     if level == 4:
                         s_key = ((vtf1.traj_id,vtf2.traj_id),(ptf1.traj_id,ptf2.traj_id))
@@ -324,6 +287,8 @@ class GameTree:
         return all_level_nodes
 gt = GameTree()
 gt.build_tree()
+gt.solve(SatisficingEquilibria())
+f=1
            
                 
                 

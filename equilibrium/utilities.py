@@ -76,8 +76,14 @@ class Utilities:
         return prog_util
         
     def combine_utils(self,prog_util,safe_util,thresh):
-        if safe_util < thresh:
-            return safe_util
+        if isinstance(thresh, np.ndarray):
+            prog_util_matrix = np.full(shape=thresh.shape, fill_value=prog_util)
+            safe_util_matrix = np.full(shape=thresh.shape, fill_value=safe_util)
+            comb_util_matrix = np.where(safe_util_matrix < thresh, safe_util_matrix, prog_util_matrix)
+            return comb_util_matrix
         else:
-            return prog_util
+            if safe_util < thresh:
+                return safe_util
+            else:
+                return prog_util
         

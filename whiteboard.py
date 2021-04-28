@@ -230,4 +230,10 @@ def test_ws_freeturn():
     plt.show()
     '''
 
-test_ws_freeturn()
+#test_ws_freeturn()
+a = np.array([[[3,5],[32,5]], [[5,6],[30,0]], [[13,5],[32,95]], [[3,65],[352,5]]])
+b = np.array([[[14,25],[332,35]], [[35,67],[302,50]], [[413,75],[352,965]], [[33,65],[3252,65]]])
+arr = np.rec.fromarrays((a,  b), names=('manv', 'utils'))
+arr_sorted = np.sort(arr,axis=0,order='utils')
+a_idxarr = arr.argsort(order='utils')
+print(arr)
