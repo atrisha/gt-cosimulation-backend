@@ -80,7 +80,7 @@ class TreeBuilder:
         time_horizon = 6
         acts = Actions()
         acts.generate_actions(init_time,veh_init_vel,ped_init_vel,time_horizon,True)
-        acts.insert_interaction_data()
+        #acts.insert_interaction_data()
         
     def get_current_states(self,time_intervals):
         state_lattice = dict()
@@ -160,8 +160,8 @@ class TreeBuilder:
         
     
     def build_final_trajectories(self):
-        #time_interval_axes = [[(0,2)], [(0,4),(2,2)]]
-        time_interval_axes = [[(0,4)]]
+        time_interval_axes = [[(0,2)], [(0,4),(2,2)]]
+        #time_interval_axes = [[(0,4)]]
         for time_intervals in time_interval_axes:
             state_lattics = self.get_current_states(time_intervals)
             for ts,ts_v in state_lattics.items():
@@ -173,9 +173,6 @@ class TreeBuilder:
                             x = init_st[0]
                             y = init_st[1]
                             v = init_st[3]
-                            if ct ==7:
-                                brk = 1
-                            
                             waypt,waypt_vel = construct_centerline(init_st[2],ag,v)
                             
                             act = Actions()

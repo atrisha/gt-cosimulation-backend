@@ -19,7 +19,7 @@ from statistics import mean
 from collections import OrderedDict
 
 
-show_plots = True
+show_plots = False
 
 
 class EquilibriaSolution:
@@ -64,41 +64,48 @@ class SatisficingEquilibria:
                 all_strategies = itertools.product(veh_actions,peds_actions)
                 self.calc_equilibria(veh_actions,peds_actions,node)
                 
-    def _process_LineString(self, eq_obj):
+    def _max_util(self,x,ag_idx):
+        if x is not None:
+            return max([y.peds_eq_utils[0] for y in x]) if ag_idx == 1 else max([y.veh_eq_utils[0] for y in x])
+        else:
+            return np.nan
+                
+    def _process_LineString(self, eq_obj,belief_index):
         equil = []
         for eq_pt in eq_obj.coords:
-            eq_strat = self.expand_equil(eq_strat = point.Point(eq_pt), veh_br_map = self.veh_best_response, peds_br_map = self.peds_best_response)
+            eq_strat = self.expand_equil(eq_strat = point.Point(eq_pt), veh_br_map = self.veh_best_response, peds_br_map = self.peds_best_response, belief_index=belief_index)
             equil.append(eq_strat)
         return equil
     
-    def _process_Point(self, eq_obj):
+    def _process_Point(self, eq_obj, belief_index):
         equil = []
-        eq_strat = self.expand_equil(eq_strat = eq_obj, veh_br_map = self.veh_best_response, peds_br_map = self.peds_best_response)
+        eq_strat = self.expand_equil(eq_strat = eq_obj, veh_br_map = self.veh_best_response, peds_br_map = self.peds_best_response, belief_index=belief_index)
         equil.append(eq_strat)
         return equil
     
-    def _process_MultiPoint(self, eq_obj):
+    def _process_MultiPoint(self, eq_obj, belief_index):
         equil = []
         for eq_pt in eq_obj:
-            eq_strat = self.expand_equil(eq_strat = eq_pt, veh_br_map = self.veh_best_response, peds_br_map = self.peds_best_response)
+            eq_strat = self.expand_equil(eq_strat = eq_pt, veh_br_map = self.veh_best_response, peds_br_map = self.peds_best_response, belief_index=belief_index)
             equil.append(eq_strat)
         return equil
     
-    def expand_equil(self,eq_strat,veh_br_map, peds_br_map):
+    def expand_equil(self,eq_strat,veh_br_map, peds_br_map, belief_index):
         veh_eq_act = eq_strat.x
         peds_eq_act = eq_strat.y
+        i,j = belief_index[0], belief_index[1]
         veh_br_key = min(veh_br_map.keys(), key=lambda x:abs(x-peds_eq_act))
-        veh_br_range = veh_br_map[veh_br_key]
+        veh_br_range = (veh_br_map[veh_br_key][0][i,j], veh_br_map[veh_br_key][1][i,j])
         peds_br_key = min(peds_br_map.keys(), key=lambda x:abs(x-veh_eq_act))
-        peds_br_range = peds_br_map[peds_br_key]
+        ''' for pedestrians, the indexes should be flipped since i is always vehicle, and pedestrian br matrix had i as pedestrian threshold'''
+        peds_br_range = (peds_br_map[peds_br_key][0][j,i], peds_br_map[peds_br_key][1][j,i])
         return (veh_br_range,peds_br_range)
                 
     def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node):
-        gamma_grid_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20))
+        print('processling node level',node.level,'id:',node._ext_id)
+        gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         ''' vehicle=0 pedestrian = 1'''
-        gamma_matrix = [np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20)]
-        equil_obj_mat_veh = np.empty(shape= gamma_matrix[0].shape, dtype=object)
-        equil_obj_mat_peds = np.empty(shape= gamma_matrix[0].shape, dtype=object)
+        #gamma_matrix = [np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20)]
         node.equilibrium_solutions = np.empty(shape= (gamma_matrix[0].shape[0],gamma_matrix[1].shape[0]), dtype=object)
         u = Utilities()
         veh_acts.sort(key=lambda x: x.length)
@@ -114,6 +121,7 @@ class SatisficingEquilibria:
         
         peds_best_response = OrderedDict()
         ct,N = 0,len(interac_dict)
+        ped_traj_l_list = set()
         for v_traj_l,traj_frag_list in interac_dict.items():
             
             ct += 1
@@ -122,18 +130,18 @@ class SatisficingEquilibria:
             for veh_traj_frag in traj_frag_list:
                 for peds_frag in ped_acts:
                     manv, manv_mode, ped_traj_l, dist_gap = peds_frag.manv, peds_frag.manv_mode, peds_frag.length, u.calc_dist_gap(veh_traj = veh_traj_frag.loaded_traj_frag, ped_traj = peds_frag.loaded_traj_frag)
+                    ped_traj_l_list.add(ped_traj_l)
                     assert ped_traj_l >= 0
-                    if node.level == 4:
-                        cont_util = np.zeros(shape= gamma_matrix[1].shape)
-                    elif peds_frag._next_node.equilibrium_solutions is not None:
-                        f = lambda x : max([y.peds_eq_utils for y in x])
-                        cont_util = f(peds_frag._next_node.equilibrium_solutions)
-                        #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
-                    else:
-                        continue 
                     step_util = u.combine_utils(u.progress_payoff_dist(ped_traj_l, 'pedestrian'), u.calc_safe_payoff(dist_gap), gamma_matrix[1])
+                    if node.level == 4:
+                        cont_util = np.copy(step_util)
+                    else:
+                        f = np.vectorize(self._max_util)
+                        cont_util = f(peds_frag._next_node.equilibrium_solutions,1)
+                        cont_util = cont_util.T
+                        #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
                     _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=object)
-                    _util_entry_matrix = np.where(cont_util != 0, np.mean( np.array([ cont_util, step_util ]), axis=0 ), step_util)
+                    _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
                     manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=manv)
                     traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ped_traj_l)
                     _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'))
@@ -141,55 +149,44 @@ class SatisficingEquilibria:
                     
             resp_vect = np.array(resp_vect)
             resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
-            upper_bound_matrix = np.copy(resp_vect_sorted[0,:])
-            upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:], resp_vect_sorted.shape[0], axis=0)
+            upper_bound_matrix = np.copy(resp_vect_sorted[0,:,:])
+            upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:,:], resp_vect_sorted.shape[0], axis=0)
             lower_bound_matrix = np.copy(resp_vect_sorted)
             _x1 = resp_vect_sorted['manv'] == upper_bound_matrix['manv']
             _x2 = resp_vect_sorted['utils'] == upper_bound_matrix['utils']
             _x3 = np.logical_or(_x1,_x2)
             selected_indices = np.argmin(_x3, axis=0) - 1
             lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
-            upper_bound_matrix = upper_bound_matrix[0,:]
+            upper_bound_matrix = upper_bound_matrix[0,:,:]
             
-            #print('pedestrian responding',ct,'/',N)
+            #print('pedestrian responding',ct,'/',N,'to',v_traj_l)
+            
             if v_traj_l not in peds_best_response:
-                if not np.array_equal(upper_bound_matrix, lower_bound_matrix):
-                    peds_best_response[v_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix))
-                else:
-                    peds_best_response[v_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix))
+                peds_best_response[v_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix))
             else:
-                if len(peds_best_response[v_traj_l]) == 2 and not np.array_equal(upper_bound_matrix, lower_bound_matrix):
-                    _merged_arr_ub = np.where(peds_best_response[v_traj_l][0]['utils'] > upper_bound_matrix['utils'], peds_best_response[v_traj_l][0], upper_bound_matrix)
-                    _merged_arr_lb = np.where(peds_best_response[v_traj_l][1]['utils'] < lower_bound_matrix['utils'], peds_best_response[v_traj_l][1], lower_bound_matrix)
-                    peds_best_response[v_traj_l] = (_merged_arr_ub, _merged_arr_lb)
-                elif len(peds_best_response[v_traj_l]) == 1 and not np.array_equal(upper_bound_matrix, lower_bound_matrix):
-                    _merged_arr_ub = np.where(peds_best_response[v_traj_l][0]['utils'] > upper_bound_matrix['utils'], peds_best_response[v_traj_l][0], upper_bound_matrix)
-                    _merged_arr_lb = np.where(peds_best_response[v_traj_l][0]['utils'] < lower_bound_matrix['utils'], peds_best_response[v_traj_l][0], lower_bound_matrix)
-                    peds_best_response[v_traj_l] = (_merged_arr_ub, _merged_arr_lb)
-                elif len(peds_best_response[v_traj_l]) == 2 and np.array_equal(upper_bound_matrix, lower_bound_matrix):
-                    _merged_arr_ub = np.where(peds_best_response[v_traj_l][0]['utils'] > upper_bound_matrix['utils'], peds_best_response[v_traj_l][0], upper_bound_matrix)
-                    _merged_arr_lb = np.where(peds_best_response[v_traj_l][1]['utils'] < upper_bound_matrix['utils'], peds_best_response[v_traj_l][1], upper_bound_matrix)
-                    peds_best_response[v_traj_l] = (_merged_arr_ub, _merged_arr_lb)
-                else:
-                    _merged_arr_ub = np.where(peds_best_response[v_traj_l][0]['utils'] > upper_bound_matrix['utils'], peds_best_response[v_traj_l][0], upper_bound_matrix)
-                    _merged_arr_lb = np.where(peds_best_response[v_traj_l][0]['utils'] < upper_bound_matrix['utils'], peds_best_response[v_traj_l][0], upper_bound_matrix)
-                    peds_best_response[v_traj_l] = (_merged_arr_ub, _merged_arr_lb)
+                _merged_arr_ub = np.where(peds_best_response[v_traj_l][0]['utils'] > upper_bound_matrix['utils'], peds_best_response[v_traj_l][0], upper_bound_matrix)
+                _merged_arr_lb = np.where(peds_best_response[v_traj_l][1]['utils'] < lower_bound_matrix['utils'], peds_best_response[v_traj_l][1], lower_bound_matrix)
+                peds_best_response[v_traj_l] = (_merged_arr_ub, _merged_arr_lb)
+                
                 
             
             
         #X_lb_ub.sort(key=lambda tup: tup[0])
         
         f=1
-        
+        '''
         if len(peds_best_response) < 2:
             node.equilibrium_solutions = None
             return None
-        
+        '''
         ''' pedestrian best response function'''
-        p1_matrix = np.empty(shape= gamma_matrix[1].shape, dtype=object)
+        p1_matrix = np.empty(shape= gamma_matrix[1].shape[0], dtype=object)
         for i in np.arange(p1_matrix.shape[0]):
-            p1 = (LineString(list(zip([x[0][i]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))) , LineString(list(zip([x[1][i]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))))
-            p1_matrix[i] = p1  
+            if np.nan in [x[0][i,0]['utils'] for x in peds_best_response.values()] or len(peds_best_response.values()) < 2:
+                p1_matrix[i] = None
+            else:
+                p1 = (LineString(list(zip([x[0][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))) , LineString(list(zip([x[1][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))))
+                p1_matrix[i] = p1  
             
                 
         
@@ -214,60 +211,64 @@ class SatisficingEquilibria:
         
         veh_best_response = OrderedDict()
         ct,N = 0,len(interac_dict)
+        veh_traj_l_list = set()
         for p_traj_l,traj_frag_list in interac_dict.items():
             
             ct += 1
             resp_vect = []
             ''' pedestrians can generate multiple distinct trajectories for the same trajectory length '''
             for ped_traj_frag in traj_frag_list:
-                for veh_frag in ped_acts:
-                    manv, manv_mode, veh_traj_l, dist_gap = veh_frag.manv, veh_frag.manv_mode, veh_frag.length, u.calc_dist_gap(veh_traj = veh_traj_frag.loaded_traj_frag, ped_traj = peds_frag.loaded_traj_frag)
+                for veh_frag in veh_acts:
+                    manv, manv_mode, veh_traj_l, dist_gap = veh_frag.manv, veh_frag.manv_mode, veh_frag.length, u.calc_dist_gap(veh_traj = veh_frag.loaded_traj_frag, ped_traj = ped_traj_frag.loaded_traj_frag)
+                    veh_traj_l_list.add(veh_traj_l)
                     assert veh_traj_l >= 0
-                    if node.level == 4:
-                        cont_util = np.zeros(shape= gamma_matrix[0].shape)
-                    elif peds_frag._next_node.equilibrium_solutions is not None:
-                        f = lambda x: max([y.veh_eq_utils for y in x])
-                        cont_util = f(veh_frag._next_node.equilibrium_solutions)
-                        #cont_util = max([max(x.veh_eq_utils) for x in veh_frag._next_node.equilibrium_solutions])
-                    else:
-                        continue 
                     step_util = u.combine_utils(u.progress_payoff_dist(veh_traj_l, 'veh'), u.calc_safe_payoff(dist_gap), gamma_matrix[0])
+                    if node.level == 4:
+                        cont_util = np.copy(step_util)
+                    else:
+                        f = np.vectorize(self._max_util)
+                        cont_util = f(veh_frag._next_node.equilibrium_solutions,0)
+                        #cont_util = max([max(x.veh_eq_utils) for x in veh_frag._next_node.equilibrium_solutions])
                     _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=object)
-                    _util_entry_matrix = np.where(cont_util != 0, np.mean( np.array([ cont_util, step_util ]), axis=0 ), step_util)
+                    _util_entry_matrix = np.mean( np.array([ cont_util, step_util ]), axis = 0)
                     manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=manv)
                     traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = veh_traj_l)
                     _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'))
+                    
                     resp_vect.append(_resp_entry)
                     
             resp_vect = np.array(resp_vect)
             resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
-            upper_bound_matrix = np.copy(resp_vect_sorted[0,:])
-            upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:], resp_vect_sorted.shape[0], axis=0)
+            upper_bound_matrix = np.copy(resp_vect_sorted[0,:,:])
+            upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:,:], resp_vect_sorted.shape[0], axis=0)
             lower_bound_matrix = np.copy(resp_vect_sorted)
             _x1 = resp_vect_sorted['manv'] == upper_bound_matrix['manv']
             _x2 = resp_vect_sorted['utils'] == upper_bound_matrix['utils']
             _x3 = np.logical_or(_x1,_x2)
             selected_indices = np.argmin(_x3, axis=0) - 1
             lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
-            upper_bound_matrix = upper_bound_matrix[0,:]
+            upper_bound_matrix = upper_bound_matrix[0,:,:]
             
-            #print('vehicle responding',ct,'/',N)
+            #print('vehicle responding',ct,'/',N,'to',p_traj_l)
             if p_traj_l not in veh_best_response:
                     veh_best_response[p_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix))
             else:
                 _merged_arr_ub = np.where(veh_best_response[p_traj_l][0]['utils'] > upper_bound_matrix['utils'], veh_best_response[p_traj_l][0], upper_bound_matrix)
                 _merged_arr_lb = np.where(veh_best_response[p_traj_l][1]['utils'] < lower_bound_matrix['utils'], veh_best_response[p_traj_l][1], lower_bound_matrix)
                 veh_best_response[p_traj_l] = (_merged_arr_ub, _merged_arr_lb)
-        
+        '''
         if len(veh_best_response) < 2:
             node.equilibrium_solutions = None
             return None
-        
+        '''
         ''' vehicle best response function'''
-        p2_matrix = np.empty(shape= gamma_matrix[0].shape, dtype=object)
+        p2_matrix = np.empty(shape= gamma_matrix[0].shape[0], dtype=object)
         for i in np.arange(p2_matrix.shape[0]):
-            p2 = (LineString(list(zip([x for x in veh_best_response.keys()],[x[0][i]['traj_l'] for x in veh_best_response.values()]))) , LineString(list(zip([x for x in veh_best_response.keys()],[x[1][i]['traj_l'] for x in veh_best_response.values()]))))
-            p2_matrix[i] = p2  
+            if np.nan in [x[0][i,0]['utils'] for x in veh_best_response.values()] or len(veh_best_response.values()) < 2:
+                p2_matrix[i] = None
+            else:
+                p2 = (LineString(list(zip([x for x in veh_best_response.keys()],[x[0][i,0]['traj_l'] for x in veh_best_response.values()]))) , LineString(list(zip([x for x in veh_best_response.keys()],[x[1][i,0]['traj_l'] for x in veh_best_response.values()]))))
+                p2_matrix[i] = p2  
         
         if show_plots:
             plt.plot([x[0][0]['traj_l'] for x in veh_best_response.values()],[x for x in veh_best_response.keys()],c='blue')
@@ -293,6 +294,9 @@ class SatisficingEquilibria:
         for i in np.arange(p2_matrix.shape[0]):
             for j in np.arange(p1_matrix.shape[0]):
                 p1,p2 = p1_matrix[j], p2_matrix[i]
+                if p1 is None or p2 is None:
+                    node.equilibrium_solutions[i,j] = None
+                    continue
                 eq_strat = None
                 eq_obj = None
                 ''' find the equilibrium with respect to upper bounds 
@@ -306,34 +310,35 @@ class SatisficingEquilibria:
                 elif len(p1) > 1 and len(p2) > 1 and p1[1].intersects(p2[1]):
                     eq_obj = p1[1].intersection(p2[1])
                 else:
-                    print('Equilibrium doesn\'t exists',gamma_matrix[0][i],gamma_matrix[1][j])
+                    pass
+                    #print('Equilibrium doesn\'t exists',gamma_matrix[0][i],gamma_matrix[1][j])
                 if eq_obj is not None:
                     if isinstance(eq_obj, multipoint.MultiPoint):
-                        eq_strat = self._process_MultiPoint(eq_obj)    
-                        print(node.level,'equilibrium',eq_strat)
+                        eq_strat = self._process_MultiPoint(eq_obj,(i,j))    
+                        
                     elif isinstance(eq_obj, point.Point):
-                        eq_strat = self._process_Point(eq_obj)
-                        print(node.level,'equilibrium',eq_strat)
+                        eq_strat = self._process_Point(eq_obj,(i,j))
+                        
                     elif isinstance(eq_obj, linestring.LineString):
-                        eq_strat = self._process_LineString(eq_obj)
-                        print(node.level,'equilibrium',eq_strat)
-                    elif isinstance(eq_obj, multilinestring.MultiLineString):
+                        eq_strat = self._process_LineString(eq_obj,(i,j))
+                        
+                    elif isinstance(eq_obj, multilinestring.MultiLineString,(i,j)):
                         eq_strat = []
                         for eq_item in eq_obj:
                             eq_strat += self._process_LineString(eq_item)
-                        print(node.level,'equilibrium',eq_strat)
+                        
                     elif isinstance(eq_obj, GeometryCollection):
                         eq_strat = []
                         for eq_item in eq_obj:
                             if isinstance(eq_item, multipoint.MultiPoint):
-                                eq_strat += self._process_MultiPoint(eq_item)    
+                                eq_strat += self._process_MultiPoint(eq_item,(i,j))    
                             elif isinstance(eq_item, point.Point):
-                                eq_strat += self._process_Point(eq_item)
+                                eq_strat += self._process_Point(eq_item,(i,j))
                             elif isinstance(eq_item, linestring.LineString):
-                                eq_strat += self._process_LineString(eq_item)
+                                eq_strat += self._process_LineString(eq_item,(i,j))
                             else:
                                 raise Exception('cannot process equilibrium of class '+type(eq_obj).__name__)
-                        print(node.level,'equilibrium',eq_strat)
+                        #print(node.level,'equilibrium',eq_strat)
                     else:
                         raise Exception('cannot process equilibrium of class '+type(eq_obj).__name__)
                 #eq_reg = p1.intersection(p2)
@@ -367,9 +372,9 @@ class SatisficingEquilibria:
                         eqsoln_obj.set_peds_utils(peds_eq_utils)
                         eq_solns.append(eqsoln_obj)
                     node.equilibrium_solutions[i,j] = eq_solns
+                    #print(node.level,'equilibrium',[x.veh_eq_acts for x in eq_solns], [x.peds_eq_acts for x in eq_solns])
                 else:
                     node.equilibrium_solutions[i,j] = None
-                
         return node.equilibrium_solutions
         
         
