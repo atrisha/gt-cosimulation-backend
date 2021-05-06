@@ -8,10 +8,10 @@ from shapely.geometry import LineString
 
 class AgentState:
     
-    def __init__(self,**kwargs):
-        for k,v in kwargs.items():
+    def __init__(self,attrib_map):
+        for k,v in attrib_map.items():
             setattr(self, k, v)
-            
+    '''   
     @property
     def x(self):
         return self.x
@@ -24,28 +24,21 @@ class AgentState:
     def velocity(self):
         return self.velocity
     
-    @x.setter
-    def x(self,x):
-        self.x = x
-    
-    @y.setter
-    def y(self,y):
-        self.y = y
-    
-    @velocity.setter
-    def velocity(self, vel):
-        self.velocity = vel
+    @property
+    def waypoints(self):
+        return self.waypoints
+    '''
         
 class VehicleState(AgentState):
     
-    def __init__(self,**kwargs):
-        AgentState.__init__(kwargs)
+    def __init__(self,attrib_map):
+        super().__init__(attrib_map)
 
 
 class PedestrianState(AgentState):
     
-    def __init__(self,**kwargs):
-        AgentState.__init__(kwargs)
+    def __init__(self,attrib_map):
+        super().__init__(attrib_map)
         
 class TrajectoryFragment:
     
@@ -84,13 +77,13 @@ class TrajectoryFragment:
     def loaded(self, value):
         self._loaded = value
         
-    def load(self,t_cache = None):
+    def load(self, file_id,t_cache):
         if not self.loaded:
             end_time = self.time_range[1] if self.time_range[1] == 6 else self.time_range[1]-self.init_time-0.01
-            if t_cache is not None and self.traj_id in t_cache:
-                res = t_cache[self.traj_id][self.time_range]
+            if t_cache is not None and t_cache[(self.init_time,self.time_range[0],self.time_range[1])] is not None and self.traj_id in t_cache[(self.init_time,self.time_range[0],self.time_range[1])].traj_cache:
+                res = t_cache[(self.init_time,self.time_range[0],self.time_range[1])].traj_cache[self.traj_id][self.time_range]
             else:
-                conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
+                conn = sqlite3.connect('D:\\repeated_games_data\\'+file_id+'.db')
                 c = conn.cursor()
                 q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID="+str(self.traj_id)+" AND TRAJECTORIES.TIME BETWEEN "+str(int(self.time_range[0]-self.init_time))+" AND "+str(end_time)+" ORDER BY TIME"
                 c.execute(q_string)
@@ -102,7 +95,7 @@ class TrajectoryFragment:
         else:
             loaded_traj_frag = self.loaded_traj_frag
         if not self.is_last:
-            loaded_traj = loaded_traj_frag + self.next_fragment.load()
+            loaded_traj = loaded_traj_frag + self.next_fragment.load(file_id, t_cache)
             self.loaded_traj = loaded_traj
             return self.loaded_traj
         else:

@@ -14,16 +14,18 @@ from equilibrium.equilibria_calculation import SatisficingEquilibria
 import copy
 from maps.map_info import NYCMapInfo
 from mpl_toolkits.mplot3d import Axes3D
-from planners.trajectory_planner import VehicleTrajectoryPlanner, PedestrianTrajectoryPlanner
+from planners.trajectory_planner import VehicleTrajectoryPlanner, PedestrianTrajectoryPlanner, WaitTrajectoryConstraints, ProceedTrajectoryConstraints
 from equilibrium.utilities import Utilities
 from numpy import linalg as LA
 import math
+from maps.States import ScenarioDef
+import constants
 
 
 
 show_plots = False
 
-
+'''
 act_dict = {'pedestrian':{
                 'maneuvers' : ['wait','walk'],
                 'manv_modes' : ['aggressive','normal']
@@ -33,59 +35,59 @@ act_dict = {'pedestrian':{
                 'manv_modes' : ['aggressive','normal']
             }
             }
+'''
 
-WAIT_MANEUVERS = ['wait']
 
-veh_maneuvers = ['turn','wait']
-ped_maneuver = ['walk','wait']
 modes = ['normal','aggressive']
 
         
 class Actions:
     
+    def __init__(self,maneuver_constraints):
+        self.maneuver_constraints = maneuver_constraints
+    
     def generate_agent_action(self,init_time,init_veh_vel,waypoint,waypoint_vels,manv,ag,horizon):
         trajs = dict()
-        if ag == 'vehicle':
-            motion = VehicleTrajectoryPlanner(waypoint,waypoint_vels,manv,None,horizon)
-            motion.generate_trajectory(True)
-            trajs[manv] = motion.all_trajectories
+        if manv in ['wait']:
+            manv_constr = WaitTrajectoryConstraints(init_vel=init_veh_vel,waypoints=waypoint,stop_horizon_dist_sampling_range=(10,100),stop_horizon_time_sampling_range=(1,10))
         else:
-            motion = PedestrianTrajectoryPlanner(waypoint,waypoint_vels,manv,None,horizon)
-            motion.generate_trajectory(True)
-            trajs[manv] = motion.all_trajectories
+            manv_constr = ProceedTrajectoryConstraints(waypoints=waypoint, waypoint_vel_sampling_range=waypoint_vels)
+        manv_constr.set_limit_constraints()
+        agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr, maneuver=manv, mode=None, horizon=horizon)
+        agent_motion.generate_trajectory(True)
+        trajs[manv] = agent_motion.all_trajectories
         return trajs
                 
         
     
-    def generate_actions(self,init_time,init_veh_vel,init_ped_vel,horizon, insert_into_db = False):
+    def generate_actions(self,init_time,agent1_init_vel,agent2_init_vel,horizon, insert_into_db = False):
         
+        horizon = 6
+        agent1_trajs,agent2_trajs = dict(), dict()
+        maneuver_constraints = self.maneuver_constraints
+        for manv,manv_constr in maneuver_constraints['agent_1']['maneuvers'].items():
+            manv_constr.set_limit_constraints()
+            agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
+            agent1_motion.generate_trajectory(True)
+            agent1_trajs[manv] = agent1_motion.all_trajectories
         
-        veh_trajs,ped_trajs = dict(), dict()
-        veh_waypoint = NYCMapInfo.veh_centerline
-        veh_waypoint_velocity = [(init_veh_vel,),(None,),(1,init_veh_vel),(None,),(init_veh_vel,10)]
-        ped_waypoint = NYCMapInfo.ped_centerline
-        ped_waypoint_velocity = [(init_ped_vel,),(init_ped_vel,1.8),(init_ped_vel,1.8)]
+        for manv,manv_constr in maneuver_constraints['agent_2']['maneuvers'].items():
+            manv_constr.set_limit_constraints()
+            agent2_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
+            agent2_motion.generate_trajectory(True)
+            agent2_trajs[manv] = agent2_motion.all_trajectories
         
-        for veh_m in veh_maneuvers:
-            veh_motion = VehicleTrajectoryPlanner(veh_waypoint,veh_waypoint_velocity,veh_m,None,horizon)
-            veh_motion.generate_trajectory(True)
-            veh_trajs[veh_m] = veh_motion.all_trajectories
-        
-    
-        for ped_m in ped_maneuver:
-            ped_motion = PedestrianTrajectoryPlanner(ped_waypoint,ped_waypoint_velocity,ped_m,None,horizon)
-            ped_motion.generate_trajectory(True)
-            ped_trajs[ped_m] = ped_motion.all_trajectories
+        file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
         
         if insert_into_db:
             parent_traj_id = None
-            conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
+            conn = sqlite3.connect('D:\\repeated_games_data\\'+file_id+'.db')
             c = conn.cursor()
             i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
             i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?,?)'
             traj_id = 1
-            for ag_type_idx,traj_det_dict in enumerate([veh_trajs,ped_trajs]):
-                ag_type = 'vehicle' if ag_type_idx == 0 else 'pedestrian'
+            for ag_type_idx,traj_det_dict in enumerate([agent1_trajs,agent2_trajs]):
+                ag_type = 'agent_1' if ag_type_idx == 0 else 'agent_2'
                 trajs, traj_metadata = [],[]
                 for traj_manv,tm_v in traj_det_dict.items():
                     for traj_mode,tmd_v in tm_v.items():
@@ -98,20 +100,18 @@ class Actions:
                 c.executemany(i_string,trajs)
                 c.executemany(i_string_tj_mtdata,traj_metadata)
                 print('agent trajectories inserted')           
-            
-            
             conn.commit()
             conn.close()        
-            f=1  
-        return veh_trajs, ped_trajs
+            
+        return agent1_trajs, agent2_trajs
     
     def insert_interaction_data(self):
         conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
         c = conn.cursor()
-        q_string = "select TRAJECTORY_METADATA.TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='vehicle'"
+        q_string = "select TRAJECTORY_METADATA.TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='agent_1'"
         c.execute(q_string)
         veh_trajids = c.fetchall()
-        q_string = "select TRAJECTORY_METADATA.TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='pedestrian'"
+        q_string = "select TRAJECTORY_METADATA.TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='agent_2'"
         c.execute(q_string)
         ped_trajids = c.fetchall()
         all_trajs = dict()
@@ -233,64 +233,70 @@ def find_index_in_list(s_sum, dist_from_origin):
             break
     return idx
 
-def construct_centerline(dist,ag,v0):
-    path = NYCMapInfo.veh_centerline if ag == 'vehicle' else NYCMapInfo.ped_centerline
-    waypoint_velocity = [(v0,),(None,),(1,5),(None,),(5,10)] if ag == 'vehicle' else [(v0,),(.5,1.8),(.5,1.8)]
-    dist_from_origin = [0] + [math.hypot(p2[0]-p1[0], p2[1]-p1[1]) for p1,p2 in list(zip(path[:-1],path[1:]))]
-    dist_from_origin = [sum(dist_from_origin[:i]) for i in np.arange(1,len(dist_from_origin))]
-    path_idx = find_index_in_list(dist, dist_from_origin)
-    if path_idx is None:
-        print(dist)
-        print(dist_from_origin)
-        raise IndexError("path_idx is None")
-    if path_idx >= len(path)-1:
-        path_idx = path_idx - 1
-    if path_idx >= len(dist_from_origin)-1:
-        underflow = None
-    else:
-        underflow = dist_from_origin[path_idx+1] - dist
-    print(len(dist_from_origin),path_idx)
-    overflow = dist - dist_from_origin[path_idx]
-    r = overflow/math.hypot(path[path_idx+1][0]-path[path_idx][0], path[path_idx+1][1]-path[path_idx][1]) if overflow != 0 else 0
-    point_x = path[path_idx][0] + r*(path[path_idx+1][0] - path[path_idx][0])
-    point_y = path[path_idx][1] + r*(path[path_idx+1][1] - path[path_idx][1])
-    point = (point_x,point_y)
-    if underflow is not None and underflow < 2:
-        if path_idx+2 <= len(path)-1 :
-            new_path = [point] + path[path_idx+2:]
-            new_waypt_vel = [(v0,)] + waypoint_velocity[path_idx+2:]
+
+
+class TreeBuilder:
+    
+    def construct_centerline(self,dist,ag,v0,maneuver_constraints):
+        path = maneuver_constraints[ag]['agent_state'].waypoints
+        waypoint_velocity = maneuver_constraints[ag]['maneuvers']['turn'].waypoint_vel_sampling_range if ag == 'agent_1' else maneuver_constraints[ag]['maneuvers']['track_speed'].waypoint_vel_sampling_range
+        dist_from_origin = [0] + [math.hypot(p2[0]-p1[0], p2[1]-p1[1]) for p1,p2 in list(zip(path[:-1],path[1:]))]
+        dist_from_origin = [sum(dist_from_origin[:i]) for i in np.arange(1,len(dist_from_origin))]
+        path_idx = find_index_in_list(dist, dist_from_origin)
+        if path_idx is None:
+            print(dist)
+            print(dist_from_origin)
+            raise IndexError("path_idx is None")
+        if path_idx >= len(path)-1:
+            path_idx = path_idx - 1
+        if path_idx >= len(dist_from_origin)-1:
+            underflow = None
+        else:
+            underflow = dist_from_origin[path_idx+1] - dist
+        overflow = dist - dist_from_origin[path_idx]
+        r = overflow/math.hypot(path[path_idx+1][0]-path[path_idx][0], path[path_idx+1][1]-path[path_idx][1]) if overflow != 0 else 0
+        point_x = path[path_idx][0] + r*(path[path_idx+1][0] - path[path_idx][0])
+        point_y = path[path_idx][1] + r*(path[path_idx+1][1] - path[path_idx][1])
+        point = (point_x,point_y)
+        if underflow is not None and underflow < 2:
+            if path_idx+2 <= len(path)-1 :
+                new_path = [point] + path[path_idx+2:]
+                new_waypt_vel = [(v0,)] + waypoint_velocity[path_idx+2:]
+            else:
+                new_path = [point] + path[path_idx+1:]
+                new_waypt_vel = [(v0,)] + waypoint_velocity[path_idx+1:]
         else:
             new_path = [point] + path[path_idx+1:]
             new_waypt_vel = [(v0,)] + waypoint_velocity[path_idx+1:]
-    else:
-        new_path = [point] + path[path_idx+1:]
-        new_waypt_vel = [(v0,)] + waypoint_velocity[path_idx+1:]
-    return new_path,new_waypt_vel
-
-class TreeBuilder:
+        if len(new_path) != len(new_waypt_vel):
+            f=1
+        return new_path,new_waypt_vel
 
 
-    def build_initial_reachability_states(self):
+    def build_initial_reachability_states(self, maneuver_constraints):
         init_time = 0
-        veh_init_vel = 5
-        ped_init_vel = 1.38
+        self.file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+        agent1_init_vel = maneuver_constraints['agent_1']['agent_state'].velocity
+        agent2_init_vel = maneuver_constraints['agent_2']['agent_state'].velocity
         time_horizon = 6
-        acts = Actions()
-        acts.generate_actions(init_time,veh_init_vel,ped_init_vel,time_horizon,True)
+        acts = Actions(maneuver_constraints)
+        acts.generate_actions(init_time,agent1_init_vel,agent2_init_vel,time_horizon,True)
         #acts.insert_interaction_data()
         
-    def get_current_states(self,time_intervals):
+    def get_current_states(self,time_intervals,maneuver_constraints):
         state_lattice = dict()
-        conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
+        conn = sqlite3.connect('D:\\repeated_games_data\\'+self.file_id+'.db')
         c = conn.cursor()
         for t in time_intervals:
             print('---------------------',t,'secs ---------------------------------')
             state_lattice[t[0]+t[1]] = dict()
-            for ag in ['pedestrian','vehicle']:
+            for ag in ['agent_1','agent_2']:
                 tot_states = 0
                 state_lattice[t[0]+t[1]][ag] = dict()
+                lattice_dist_step = 1 if ag == 'agent_1' else 2
+                lattice_vel_step = 0.3 if ag == 'agent_1' else 1
                 print("--",ag,'init states (s,x,y)',"--")
-                for manv in act_dict[ag]['maneuvers']:
+                for manv in maneuver_constraints[ag]['maneuvers'].keys():
                     q_string = "SELECT MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X),ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.TRAJ_ID FROM TRAJECTORY_METADATA \
                                 INNER JOIN TRAJECTORIES on TRAJECTORY_METADATA.TRAJ_ID = TRAJECTORIES.TRACK_ID \
                                     WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag+"' AND TRAJECTORIES.TIME="+str(t[1])+" AND TRAJECTORY_METADATA.INIT_TIME="+str(t[0])+"\
@@ -308,7 +314,7 @@ class TreeBuilder:
                         if i == 0:
                             trajs_l_states.append((t_p[1],t_p[2],t_p[0],t_p[4],t_p[5]))
                         else:
-                            if abs(traj_l[i-1][0] - t_p[0]) >= 0.5 or abs(traj_l[i-1][4] - t_p[4]) >= 0.3:
+                            if abs(traj_l[i-1][0] - t_p[0]) >= lattice_dist_step:
                                 trajs_l_states.append((t_p[1],t_p[2],t_p[0],t_p[4],t_p[5]))
                         
                     #num_states = len(speed_states)*len(trajs_l_states)
@@ -328,7 +334,7 @@ class TreeBuilder:
         return state_lattice
     
     def insert_trajs_into_db(self,trajs, ag, init_time, parent_traj_id):
-        conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
+        conn = sqlite3.connect('D:\\repeated_games_data\\'+self.file_id+'.db')
         c = conn.cursor()
         i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
         i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?,?)'
@@ -356,44 +362,51 @@ class TreeBuilder:
         conn.close()
         
     
-    def build_final_trajectories(self):
+    def build_final_trajectories(self,maneuver_constraints):
         time_interval_axes = [[(0,2)], [(0,4),(2,2)]]
         #time_interval_axes = [[(0,4)]]
         for time_intervals in time_interval_axes:
-            state_lattics = self.get_current_states(time_intervals)
+            state_lattics = self.get_current_states(time_intervals,maneuver_constraints)
             for ts,ts_v in state_lattics.items():
                 for ag,ag_v in ts_v.items():
                     for manv,manv_v in ag_v.items():
                         ct,N = 0,len(manv_v)
                         for init_st in manv_v:
                             ct += 1
-                            x = init_st[0]
-                            y = init_st[1]
                             v = init_st[3]
-                            waypt,waypt_vel = construct_centerline(init_st[2],ag,v)
-                            
-                            act = Actions()
-                            generating_manv = [x for x in act_dict[ag]['maneuvers'] if x != manv][0]
-                            horizon = 6 - ts
-                            parent_traj_id = init_st[4]
-                            trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, horizon)
-                            self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
-                            print('generating',ag,'time',ts,'manv',generating_manv,ct,'/',N)
+                            waypt,waypt_vel = self.construct_centerline(init_st[2],ag,v,maneuver_constraints)
+                            assert len(waypt) == len(waypt_vel)
+                            act = Actions(maneuver_constraints)
+                            generating_manv_l = [x for x in maneuver_constraints[ag]['maneuvers'].keys() if x != manv]
+                            for generating_manv in generating_manv_l:
+                                horizon = 6 - ts
+                                parent_traj_id = init_st[4]
+                                if ag == 'agent_2' and (ts == 4 or ts ==2) and generating_manv == 'wait':
+                                    brk = 1
+                                trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, horizon)
+                                self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
+                                print('generating',ag,'time',ts,'manv',generating_manv,ct,'/',N)
+                                print(' '.join([str(_k)+':'+str(len(_v)) for _k,_v in trajs[generating_manv].items()]))
                 
        
-    def build_complete_tree(self):
-        self.build_initial_reachability_states()
-        self.build_final_trajectories()
+    def build_complete_tree(self,maneuver_constraints):
+        self.build_initial_reachability_states(maneuver_constraints)
+        self.build_final_trajectories(maneuver_constraints)
 
 
 
 class TrajectoryCache:
     
-    def __init__(self,init_time,time_range,ag_type):
-        conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
+    def __init__(self,init_time,time_range,ag_type,file_id):
+        conn = sqlite3.connect('D:\\repeated_games_data\\'+file_id+'.db')
         c = conn.cursor()
-        q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID IN ( \
+        if ag_type is not None:
+            q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID IN ( \
                     select TRAJECTORY_METADATA.TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME="+str(init_time)+" AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"') \
+                    AND TRAJECTORIES.TIME BETWEEN "+str(time_range[0]-init_time)+" AND "+str(time_range[1]-init_time)
+        else:
+            q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID IN ( \
+                    select TRAJECTORY_METADATA.TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME="+str(init_time)+") \
                     AND TRAJECTORIES.TIME BETWEEN "+str(time_range[0]-init_time)+" AND "+str(time_range[1]-init_time)
         c.execute(q_string)
         res = c.fetchall()
@@ -409,18 +422,28 @@ class TrajectoryCache:
     
 class Node:
     
+    progress_ctr = 0
+    tree_size = 0
+    
     def __init__(self,level, path_from_root,_ext_id):
         self.level = level
         self.path_from_root = path_from_root
         self._ext_id = _ext_id
     
-    def load(self):
+    def load(self,file_id, traj_cache = None):
+        if traj_cache is None:
+            traj_cache = dict()
+            for x in [(0,0,2),(0,2,4),(2,2,4)]:
+                traj_cache[x] = TrajectoryCache(init_time=x[0],time_range=(x[1],x[2]),ag_type=None,file_id=file_id)
+        
         if not self.is_root:
             for p in self.path_from_root.values():
-                p.load()
+                p.load(file_id,traj_cache)
         if self.children is not None:
             for n in self.children:
-                n.load()
+                n.load(file_id,traj_cache)
+        Node.progress_ctr += 1
+        #print('loaded node',Node.progress_ctr,'/',Node.tree_size)
         '''
         if self.is_leaf:
             for p in self.actions['vehicle']:
@@ -429,13 +452,13 @@ class Node:
                 p.load()
         ''' 
     def set_actions(self):
-        actions = {'vehicle':[],'pedestrian':[]}
+        actions = {'agent_1':[],'agent_2':[]}
         ''' get the children nodes and their path from root.
             actions are the last trajectory fragment of that path
         '''
         if self.is_leaf:
-            veh_path_from_root = self.path_from_root['vehicle']
-            peds_path_from_root = self.path_from_root['pedestrian']
+            veh_path_from_root = self.path_from_root['agent_1']
+            peds_path_from_root = self.path_from_root['agent_2']
             v_tf = veh_path_from_root.get_last()
             p_tf = peds_path_from_root.get_last()
             self.actions = None
@@ -445,14 +468,14 @@ class Node:
         else:
             for cidx,c in enumerate(self.children):
                 c.set_actions()
-                veh_path_from_root = c.path_from_root['vehicle']
-                peds_path_from_root = c.path_from_root['pedestrian']
+                veh_path_from_root = c.path_from_root['agent_1']
+                peds_path_from_root = c.path_from_root['agent_2']
                 v_tf = copy.copy(veh_path_from_root.get_last())
                 p_tf = copy.copy(peds_path_from_root.get_last())
                 v_tf._next_node = c
                 p_tf._next_node = c
-                actions['vehicle'].append(v_tf)
-                actions['pedestrian'].append(p_tf)
+                actions['agent_1'].append(v_tf)
+                actions['agent_2'].append(p_tf)
             self.actions = actions
             '''
             assert len(actions['vehicle']) == len(self.children)
@@ -482,14 +505,41 @@ class GameTree:
     
     counter = 1
     
-    def build_tree(self):
-        print('building lattice nodes...')
-        start_time = time.time()
-        level_nodes_2s = self.build_level_nodes(2)
-        level_nodes_4s = self.build_level_nodes(4)
-        level_nodes_6s = self.build_level_nodes(6)
-        v_tcache_4_6 = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='vehicle')
-        p_tcache_4_6 = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='pedestrian')
+    def __init__(self,file_id):
+        self.file_id = file_id
+        
+    def _process_two_change_tree(self,level_nodes_xs,x,level_nodes_6s):
+        v_tcache_4_6 = TrajectoryCache(init_time=x,time_range=(x,6),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6 = TrajectoryCache(init_time=x,time_range=(x,6),ag_type='agent_2',file_id=self.file_id)
+        _ext_id = GameTree.counter
+        self.root = Node(0,None,_ext_id)
+        GameTree.counter += 1
+        
+        for n4s,n4 in level_nodes_xs.items():
+            level_nodes_xs[n4s].children = []
+            if n4s[0][-1] in level_nodes_6s['agent_1'] and n4s[1][-1] in level_nodes_6s['agent_2']:
+                _children_info = list(itertools.product(level_nodes_6s['agent_1'][n4s[0][-1]], level_nodes_6s['agent_2'][n4s[1][-1]]))
+                n6 = []
+                for _c in _children_info:
+                    vtf = TrajectoryFragment(time_range=(x,6),traj_id=_c[0][-2],manv=_c[0][0],manv_mode=_c[0][1],init_time=_c[0][-3])
+                    ptf = TrajectoryFragment(time_range=(x,6),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3])
+                    vtf.load(self.file_id,v_tcache_4_6.traj_cache)
+                    ptf.load(self.file_id,p_tcache_4_6.traj_cache)
+                    _ext_id = GameTree.counter
+                    nd = Node(6,{'agent_1':vtf, 'agent_2':ptf},_ext_id)
+                    GameTree.counter += 1
+                    n6.append(nd)
+                for _n in n6:
+                    _n.children = None
+                level_nodes_xs[n4s].children += n6
+            if len(level_nodes_xs[n4s].children) == 0:
+                level_nodes_xs[n4s].children = None
+        self.root.children = list(level_nodes_xs.values())
+        
+    def _process_three_change_tree(self,level_nodes_2s,level_nodes_4s,level_nodes_6s):
+        v_tcache_4_6, p_tcache_4_6 = dict(), dict()
+        v_tcache_4_6[(4,4,6)] = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(4,4,6)] = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='agent_2',file_id=self.file_id)
         _ext_id = GameTree.counter
         self.root = Node(0,None,_ext_id)
         GameTree.counter += 1
@@ -497,21 +547,19 @@ class GameTree:
         for s_path,n in level_nodes_2s.items():
             n_children = []
             for n4s,n4 in level_nodes_4s.items():
-                
-                
                 if s_path[0][0] == n4s[0][0] and s_path[1][0] == n4s[1][0]:
                     level_nodes_4s[n4s].children = []
                     n_children.append(level_nodes_4s[n4s])
-                    if n4s[0][-1] in level_nodes_6s['vehicle'] and n4s[1][-1] in level_nodes_6s['pedestrian']:
-                        _children_info = list(itertools.product(level_nodes_6s['vehicle'][n4s[0][-1]], level_nodes_6s['pedestrian'][n4s[1][-1]]))
+                    if n4s[0][-1] in level_nodes_6s['agent_1'] and n4s[1][-1] in level_nodes_6s['agent_2']:
+                        _children_info = list(itertools.product(level_nodes_6s['agent_1'][n4s[0][-1]], level_nodes_6s['agent_2'][n4s[1][-1]]))
                         n6 = []
                         for _c in _children_info:
                             vtf = TrajectoryFragment(time_range=(4,6),traj_id=_c[0][-2],manv=_c[0][0],manv_mode=_c[0][1],init_time=_c[0][-3])
                             ptf = TrajectoryFragment(time_range=(4,6),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3])
-                            vtf.load(v_tcache_4_6.traj_cache)
-                            ptf.load(p_tcache_4_6.traj_cache)
+                            vtf.load(self.file_id,v_tcache_4_6)
+                            ptf.load(self.file_id,p_tcache_4_6)
                             _ext_id = GameTree.counter
-                            nd = Node(6,{'vehicle':vtf, 'pedestrian':ptf},_ext_id)
+                            nd = Node(6,{'agent_1':vtf, 'agent_2':ptf},_ext_id)
                             GameTree.counter += 1
                             n6.append(nd)
                         for _n in n6:
@@ -521,10 +569,32 @@ class GameTree:
                         level_nodes_4s[n4s].children = None
             n.children = n_children
         self.root.children = list(level_nodes_2s.values())
+        
+        
+        
+    def build_tree(self):
+        print('building lattice nodes...')
+        start_time = time.time()
+        level_nodes_2s = self.build_level_nodes(2)
+        level_nodes_4s = self.build_level_nodes(4)
+        level_nodes_6s = self.build_level_nodes(6)
+        if len(level_nodes_2s) == 0 and len(level_nodes_4s) != 0:
+            self.last_decision_level = 4
+            self._process_two_change_tree(level_nodes_4s, 4, level_nodes_6s)
+        elif len(level_nodes_2s) != 0 and len(level_nodes_4s) == 0:
+            self.last_decision_level = 2
+            self._process_two_change_tree(level_nodes_2s, 2, level_nodes_6s)
+        elif len(level_nodes_2s) != 0 and len(level_nodes_4s) != 0:
+            self.last_decision_level = 4
+            self._process_three_change_tree(level_nodes_2s, level_nodes_4s, level_nodes_6s)
+        else:
+            self.last_decision_level = 0
+        print('N (2s):',len(level_nodes_2s), 'N (4s):',len(level_nodes_4s), 'N (6s):',len(level_nodes_6s['agent_1'])*len(level_nodes_6s['agent_2']))
+        Node.tree_size = len(level_nodes_2s) * len(level_nodes_4s)
         print('building lattice nodes....DONE','(%s secs)' % (time.time() - start_time),)
         print('loading tree...')
         start_time = time.time()
-        self.root.load()
+        self.root.load(self.file_id)
         print('loading tree....DONE','(%s secs)' % (time.time() - start_time),)
         print('setting actions...')
         start_time = time.time()
@@ -535,11 +605,11 @@ class GameTree:
     
     def solve(self,eq_class):
         
-        eq_class.solve(node = self.root)
+        eq_class.solve(node = self.root,last_decision_level=self.last_decision_level)
         
     
     def build_level_nodes(self, level):
-        conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
+        conn = sqlite3.connect('D:\\repeated_games_data\\'+self.file_id+'.db')
         c = conn.cursor()
         all_level_nodes = dict()
             
@@ -552,21 +622,26 @@ class GameTree:
                         UNION \
                         select MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X)*ABS(INIT_POS_X-X)+ABS(INIT_POS_Y-Y)*ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.INIT_TIME,TRAJECTORY_METADATA.TRAJ_ID,TRAJECTORY_METADATA.PARENT_TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME=0 AND TRAJECTORIES.TIME=6 AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.TRAJ_ID IN (select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.INIT_TIME=2)"
         if level == 6:
-            c.execute(_getqstring('vehicle'))
+            c.execute(_getqstring('agent_1'))
             veh_res = c.fetchall()
-            c.execute(_getqstring('pedestrian'))
+            c.execute(_getqstring('agent_2'))
             peds_res = c.fetchall()
             #veh_res = np.array([(x[0],x[1],x[2],LA.norm([x[3],x[4]]),LA.norm([x[3],x[4]]),x[5],x[6],x[7],x[8],x[9],x[10]) for x in veh_res])
             veh_lattice_states,latc_tracker_veh = dict(),dict()
             #peds_res = np.array([(x[0],x[1],x[2],LA.norm([x[3],x[4]]),LA.norm([x[3],x[4]]),x[5],x[6],x[7],x[8],x[9],x[10]) for x in peds_res])
             peds_lattice_states,latc_tracker_ped = dict(), dict()
+            lattice_dist_step_ag1 = 0.5
+            lattice_vel_step_ag1 = 0.3
+            lattice_dist_step_ag2 = 5
+            lattice_vel_step_ag2 = 1
+                
             for idx1,veh_row in enumerate(veh_res):
                 parent_traj_id = veh_row[-1] if veh_row[-1] is not None else veh_row[-2]
                 if parent_traj_id not in veh_lattice_states:
                         veh_lattice_states[parent_traj_id] = []
                         
                 if veh_row[-3] == 4:
-                    if parent_traj_id not in latc_tracker_veh or ( math.sqrt(veh_row[3])-min(latc_tracker_veh[parent_traj_id], key=lambda x:abs(x-math.sqrt(veh_row[3]))) > 0.5 ):
+                    if parent_traj_id not in latc_tracker_veh or ( math.sqrt(veh_row[3])-min(latc_tracker_veh[parent_traj_id], key=lambda x:abs(x-math.sqrt(veh_row[3]))) > lattice_dist_step_ag1 ):
                         if parent_traj_id not in latc_tracker_veh:
                             latc_tracker_veh[parent_traj_id] = []
                         veh_lattice_states[parent_traj_id].append(tuple([x if _i !=3 else math.sqrt(x) for _i,x in enumerate(veh_row)]))
@@ -578,7 +653,7 @@ class GameTree:
                 if parent_traj_id not in peds_lattice_states:
                         peds_lattice_states[parent_traj_id] = []
                 if peds_row[-3] == 4:
-                    if parent_traj_id not in latc_tracker_ped or ( math.sqrt(peds_row[3])-min(latc_tracker_ped[parent_traj_id], key=lambda x:abs(x-math.sqrt(peds_row[3]))) > 0.1 ):
+                    if parent_traj_id not in latc_tracker_ped or ( math.sqrt(peds_row[3])-min(latc_tracker_ped[parent_traj_id], key=lambda x:abs(x-math.sqrt(peds_row[3]))) > lattice_dist_step_ag2 ):
                         if parent_traj_id not in latc_tracker_ped:
                             latc_tracker_ped[parent_traj_id] = []
                         
@@ -588,20 +663,41 @@ class GameTree:
                 else:
                     peds_lattice_states[parent_traj_id].append(tuple([x if _i !=3 else math.sqrt(x) for _i,x in enumerate(peds_row)]))
             
-            all_level_nodes['vehicle'] = veh_lattice_states
-            all_level_nodes['pedestrian'] = peds_lattice_states
+            all_level_nodes['agent_1'] = veh_lattice_states
+            all_level_nodes['agent_2'] = peds_lattice_states
         else:
+            ''' one way to find the lattice nodes at level l is to just query for trajectories that offshoot (i.e. are the parents) trajectories from level l to the end.
+            In other words, trajectories which are the parent trajectories for trajectories that start from level l'''
+            
             q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.TRAJ_ID IN ( \
-                            select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+'vehicle'+"' AND TRAJECTORY_METADATA.INIT_TIME="+str(level)+");"
+                            select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_1'+"' AND TRAJECTORY_METADATA.INIT_TIME="+str(level)+");"
             c.execute(q_string)
             veh_res = c.fetchall()
             veh_traj_info = {row[0]:(row[6],row[7],row[9]) for row in veh_res}
             
+            if level == 4:
+                ''' get the grandparent fragment info. Only level 4 has grandparent, and that starts from time 0 '''
+                q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 and TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_1'+"'"
+                c.execute(q_string)
+                res = c.fetchall()
+                for row in res:
+                    veh_traj_info[row[0]] = (row[6],row[7],row[9])
+            
+            
             q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.TRAJ_ID IN ( \
-                            select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+'pedestrian'+"' AND TRAJECTORY_METADATA.INIT_TIME="+str(level)+");"
+                            select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_2'+"' AND TRAJECTORY_METADATA.INIT_TIME="+str(level)+");"
             c.execute(q_string)
             peds_res = c.fetchall()
             peds_traj_info = {row[0]:(row[6],row[7],row[9]) for row in peds_res}
+            if level == 4:
+                ''' get the grandparent fragment info. Only level 4 has grandparent, and that starts from time 0 '''
+                q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 and TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_2'+"'"
+                c.execute(q_string)
+                res = c.fetchall()
+                for row in res:
+                    peds_traj_info[row[0]] = (row[6],row[7],row[9])
+            
+            
             ct,N = 0,len(veh_res)*len(peds_res)
             for idx1,veh_row in enumerate(veh_res):
                 if veh_row[9] == 0:
@@ -613,8 +709,7 @@ class GameTree:
                     else:
                         vtf1.is_last = True
                 else:
-                    if veh_row[10] not in veh_traj_info:
-                        continue
+                    ''' get the grandparent fragment '''
                     vtf1 = TrajectoryFragment(time_range = (0,2) ,traj_id = veh_row[10] ,manv = veh_traj_info[veh_row[10]][0],manv_mode = veh_traj_info[veh_row[10]][1],init_time = veh_traj_info[veh_row[10]][2])
                     if level == 4:
                         vtf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2])
@@ -634,8 +729,6 @@ class GameTree:
                         else:
                             ptf1.is_last = True
                     else:
-                        if peds_row[10] not in peds_traj_info:
-                            continue
                         ptf1 = TrajectoryFragment(time_range = (0,2) ,traj_id = peds_row[10] ,manv = peds_traj_info[peds_row[10]][0],manv_mode = peds_traj_info[peds_row[10]][1],init_time = peds_traj_info[peds_row[10]][2])
                         if level == 4:
                             ptf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2])
@@ -644,7 +737,7 @@ class GameTree:
                         else:
                             ptf1.is_last = True
                     _ext_id = GameTree.counter
-                    nd = Node(level,{'vehicle':vtf1, 'pedestrian':ptf1}, _ext_id)
+                    nd = Node(level,{'agent_1':vtf1, 'agent_2':ptf1}, _ext_id)
                     GameTree.counter += 1
                     #nd.load()
                     if level == 4:
@@ -654,16 +747,18 @@ class GameTree:
                     all_level_nodes[s_key] = nd
                 
         return all_level_nodes
-    
-tree_builder = TreeBuilder()
-tree_builder.build_complete_tree()
-gt = GameTree()
+
+initialize_db = False
+scene_def = ScenarioDef(8,23,'769',initialize_db=initialize_db)
+maneuver_constraints = scene_def.setup_trajectory_constraints()
+if initialize_db:
+    tree_builder = TreeBuilder()
+    tree_builder.build_complete_tree(maneuver_constraints)
+
+file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+gt = GameTree(file_id)
 gt.build_tree()
+type(gt.root).progress_ctr = 0
 start_time = time.time()
 gt.solve(SatisficingEquilibria())
 print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
-           
-                
-                
-        
-        

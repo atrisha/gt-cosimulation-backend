@@ -49,20 +49,20 @@ class SatisficingEquilibria:
         Generates the best response set modulo manuver.
         Also generates the utility interval for the best response set.
     '''
-    def solve(self,node):
-        if node.level == 4:
-            peds_actions = node.actions['pedestrian']
-            veh_actions = node.actions['vehicle']
+    def solve(self,node,last_decision_level):
+        if node.level == last_decision_level:
+            peds_actions = node.actions['agent_2']
+            veh_actions = node.actions['agent_1']
             all_strategies = itertools.product(veh_actions,peds_actions)
-            self.calc_equilibria(veh_actions,peds_actions,node)
+            self.calc_equilibria(veh_actions,peds_actions,node,last_decision_level)
         else:
             if not node.is_leaf: 
                 for c in node.children:
-                    self.solve(c)
-                peds_actions = node.actions['pedestrian']
-                veh_actions = node.actions['vehicle']
+                    self.solve(c,last_decision_level)
+                peds_actions = node.actions['agent_2']
+                veh_actions = node.actions['agent_1']
                 all_strategies = itertools.product(veh_actions,peds_actions)
-                self.calc_equilibria(veh_actions,peds_actions,node)
+                self.calc_equilibria(veh_actions,peds_actions,node,last_decision_level)
                 
     def _max_util(self,x,ag_idx):
         if x is not None:
@@ -97,20 +97,22 @@ class SatisficingEquilibria:
         veh_br_key = min(veh_br_map.keys(), key=lambda x:abs(x-peds_eq_act))
         veh_br_range = (veh_br_map[veh_br_key][0][i,j], veh_br_map[veh_br_key][1][i,j])
         peds_br_key = min(peds_br_map.keys(), key=lambda x:abs(x-veh_eq_act))
-        ''' for pedestrians, the indexes should be flipped since i is always vehicle, and pedestrian br matrix had i as pedestrian threshold'''
+        ''' for agent_2, the indexes should be flipped since i is always agent_1, and agent_2 br matrix had i as agent_2 threshold'''
         peds_br_range = (peds_br_map[peds_br_key][0][j,i], peds_br_map[peds_br_key][1][j,i])
         return (veh_br_range,peds_br_range)
                 
-    def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node):
-        print('processling node level',node.level,'id:',node._ext_id)
+    def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        type(node).progress_ctr += 1
+        #print('processing node level',node.level,'id:',node._ext_id)
+        print('solving node',type(node).progress_ctr,'/',type(node).tree_size)
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
-        ''' vehicle=0 pedestrian = 1'''
+        ''' agent_1=0 agent_2 = 1'''
         #gamma_matrix = [np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20)]
         node.equilibrium_solutions = np.empty(shape= (gamma_matrix[0].shape[0],gamma_matrix[1].shape[0]), dtype=object)
         u = Utilities()
         veh_acts.sort(key=lambda x: x.length)
         ped_acts.sort(key=lambda x: x.length)
-        ''' pedestrian best response to vehicle's trajectory length'''
+        ''' agent_2 best response to agent_1's trajectory length'''
         
         interac_dict = OrderedDict()
         for traj_frag in veh_acts:
@@ -126,25 +128,27 @@ class SatisficingEquilibria:
             
             ct += 1
             resp_vect = []
-            ''' vehicles can generate multiple distinct trajectories for the same trajectory length '''
+            ''' agent_1 can generate multiple distinct trajectories for the same trajectory length '''
             for veh_traj_frag in traj_frag_list:
                 for peds_frag in ped_acts:
                     manv, manv_mode, ped_traj_l, dist_gap = peds_frag.manv, peds_frag.manv_mode, peds_frag.length, u.calc_dist_gap(veh_traj = veh_traj_frag.loaded_traj_frag, ped_traj = peds_frag.loaded_traj_frag)
                     ped_traj_l_list.add(ped_traj_l)
                     assert ped_traj_l >= 0
-                    step_util = u.combine_utils(u.progress_payoff_dist(ped_traj_l, 'pedestrian'), u.calc_safe_payoff(dist_gap), gamma_matrix[1])
-                    if node.level == 4:
+                    step_util = u.combine_utils(u.progress_payoff_dist(ped_traj_l, 'agent_2'), u.calc_safe_payoff(dist_gap), gamma_matrix[1])
+                    if node.level == last_decision_level:
                         cont_util = np.copy(step_util)
                     else:
                         f = np.vectorize(self._max_util)
                         cont_util = f(peds_frag._next_node.equilibrium_solutions,1)
                         cont_util = cont_util.T
                         #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
-                    _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=object)
+                    _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
+                    if np.isnan(cont_util).any():
+                        continue
                     _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
                     manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=manv)
                     traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ped_traj_l)
-                    _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'))
+                    _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'), dtype=[('manv', str), ('traj_l', float), ('utils', float)])
                     resp_vect.append(_resp_entry)
                     
             resp_vect = np.array(resp_vect)
@@ -179,11 +183,14 @@ class SatisficingEquilibria:
             node.equilibrium_solutions = None
             return None
         '''
-        ''' pedestrian best response function'''
+        ''' agent_2 best response function'''
         p1_matrix = np.empty(shape= gamma_matrix[1].shape[0], dtype=object)
         for i in np.arange(p1_matrix.shape[0]):
-            if np.nan in [x[0][i,0]['utils'] for x in peds_best_response.values()] or len(peds_best_response.values()) < 2:
+            if np.nan in [x[0][i,0]['utils'] for x in peds_best_response.values()] or len(peds_best_response.values()) == 0:
                 p1_matrix[i] = None
+            elif len(peds_best_response.values()) == 1:
+                p1 = (point.Point(list(zip([x[0][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))) , point.Point(list(zip([x[1][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))))
+                p1_matrix[i] = p1
             else:
                 p1 = (LineString(list(zip([x[0][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))) , LineString(list(zip([x[1][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))))
                 p1_matrix[i] = p1  
@@ -193,7 +200,7 @@ class SatisficingEquilibria:
         if show_plots:
             plt.figure()
             plt.plot([x for x in peds_best_response.keys()],[x[0][0]['traj_l'] for x in peds_best_response.values()],c='red')
-            plt.plot([x for x in peds_best_response.keys()],[x[1][0]['traj_l'] for x in peds_best_response.values()],c=lighten_color('red', .5),label = 'pedestrian best response')
+            plt.plot([x for x in peds_best_response.keys()],[x[1][0]['traj_l'] for x in peds_best_response.values()],c=lighten_color('red', .5),label = 'agent_2 best response')
         
                 
                 
@@ -201,7 +208,7 @@ class SatisficingEquilibria:
         
         
         
-        ''' vehicle best reponse to pedestrian trajectory choice'''
+        ''' agent_1 best reponse to agent_2 trajectory choice'''
         interac_dict = OrderedDict()
         for traj_frag in ped_acts:
             ped_traj_l = traj_frag.length
@@ -216,14 +223,14 @@ class SatisficingEquilibria:
             
             ct += 1
             resp_vect = []
-            ''' pedestrians can generate multiple distinct trajectories for the same trajectory length '''
+            ''' agent_2 can generate multiple distinct trajectories for the same trajectory length '''
             for ped_traj_frag in traj_frag_list:
                 for veh_frag in veh_acts:
                     manv, manv_mode, veh_traj_l, dist_gap = veh_frag.manv, veh_frag.manv_mode, veh_frag.length, u.calc_dist_gap(veh_traj = veh_frag.loaded_traj_frag, ped_traj = ped_traj_frag.loaded_traj_frag)
                     veh_traj_l_list.add(veh_traj_l)
                     assert veh_traj_l >= 0
-                    step_util = u.combine_utils(u.progress_payoff_dist(veh_traj_l, 'veh'), u.calc_safe_payoff(dist_gap), gamma_matrix[0])
-                    if node.level == 4:
+                    step_util = u.combine_utils(u.progress_payoff_dist(veh_traj_l, 'agent_1'), u.calc_safe_payoff(dist_gap), gamma_matrix[0])
+                    if node.level == last_decision_level:
                         cont_util = np.copy(step_util)
                     else:
                         f = np.vectorize(self._max_util)
@@ -261,18 +268,21 @@ class SatisficingEquilibria:
             node.equilibrium_solutions = None
             return None
         '''
-        ''' vehicle best response function'''
+        ''' agent_1 best response function'''
         p2_matrix = np.empty(shape= gamma_matrix[0].shape[0], dtype=object)
         for i in np.arange(p2_matrix.shape[0]):
-            if np.nan in [x[0][i,0]['utils'] for x in veh_best_response.values()] or len(veh_best_response.values()) < 2:
+            if np.nan in [x[0][i,0]['utils'] for x in veh_best_response.values()] or len(veh_best_response.values()) == 0:
                 p2_matrix[i] = None
+            elif len(veh_best_response.values()) == 1:
+                p2 = (point.Point(list(zip([x for x in veh_best_response.keys()],[x[0][i,0]['traj_l'] for x in veh_best_response.values()]))) , point.Point(list(zip([x for x in veh_best_response.keys()],[x[1][i,0]['traj_l'] for x in veh_best_response.values()])))) 
+                p2_matrix[i] = p2
             else:
                 p2 = (LineString(list(zip([x for x in veh_best_response.keys()],[x[0][i,0]['traj_l'] for x in veh_best_response.values()]))) , LineString(list(zip([x for x in veh_best_response.keys()],[x[1][i,0]['traj_l'] for x in veh_best_response.values()]))))
                 p2_matrix[i] = p2  
         
         if show_plots:
             plt.plot([x[0][0]['traj_l'] for x in veh_best_response.values()],[x for x in veh_best_response.keys()],c='blue')
-            plt.plot([x[1][0]['traj_l'] for x in veh_best_response.values()],[x for x in veh_best_response.keys()],c=lighten_color('blue', .5),label = 'vehicle best response')
+            plt.plot([x[1][0]['traj_l'] for x in veh_best_response.values()],[x for x in veh_best_response.keys()],c=lighten_color('blue', .5),label = 'agent_1 best response')
         
         
         
@@ -281,12 +291,12 @@ class SatisficingEquilibria:
         
         '''
         p1:
-            x : vehicle's trajectory length choice
-            y : pedestrian best response
+            x : agent_1's trajectory length choice
+            y : agent_2 best response
             
         p2:
-            x : vehicle best reponse 
-            y : pedestrian's trajectory length choice
+            x : agent_1 best reponse 
+            y : agent_2's trajectory length choice
         
         p[0]: upper bound
         p[1]: lower bound

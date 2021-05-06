@@ -25,7 +25,8 @@ class TrajectoryConstraints:
         self.waypoints = waypoints
         self.init_vel = init_vel
         
-    def set_limit_constraints(self,max_lat_acc_lims=5.6,max_vel_lims=16,max_acc_lims=3.6,max_jerk_lims=2):
+        
+    def set_limit_constraints(self,max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=5,max_jerk_lims=2):
         self.max_lat_acc_lims = max_lat_acc_lims
         self.max_vel_lims = max_vel_lims
         self.max_acc_lims = max_acc_lims
@@ -354,6 +355,11 @@ class TrajectoryPlanner:
                 
                     stopped_traj = False
                     time_st = np.arange(0,horizon+.1,.1)
+                    if 'target vels' in v:
+                        err = self.cs_v(0) - v['target vels'][0]
+                        v_corrected = lambda x : self.cs_v(x) - err
+                    else:
+                        v_corrected = self.cs_v
                     for t in time_st:
                         if t <= horizon:
                             #s = self.t_s_map[t]
@@ -364,7 +370,7 @@ class TrajectoryPlanner:
                             if not stopped_traj:
                                 #math.atan2(self.cs_y(s/self.arcl)-traj[-1][2], self.cs_x(s/self.arcl)-traj[-1][1])
                                 yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
-                                traj.append((t,self.cs_x(s/self.arcl),self.cs_y(s/self.arcl),self.cs_v(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl),yaw))
+                                traj.append((t,self.cs_x(s/self.arcl),self.cs_y(s/self.arcl),v_corrected(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl),yaw))
                             else:
                                 traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7]))
                         else:
@@ -467,7 +473,12 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
             ''' fit the time scaled velocity curve'''
             #self.cs_v = CubicSpline(time_pts,this_vel_targets)
             ord = min(len(time_pts)-1,3)
+            #self.cs_v = UnivariateSpline(time_pts,this_vel_targets,w=np.arange(len(time_pts)+1,1,-1),k=ord)
             self.cs_v = UnivariateSpline(time_pts,this_vel_targets,k=ord)
+            #plt.plot(time_st,[self.cs_v(z) for z in time_st])
+            #plt.plot(time_pts,this_vel_targets,'x')
+            #plt.show()
+                                
             if self.show_plots:
                 plt.plot(np.linspace(time_pts[0],time_pts[-1],100),[self.cs_v(x) for x in np.linspace(time_pts[0],time_pts[-1],100)])
                 
@@ -504,6 +515,9 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                 self.velocity_profiles[category].append(entry)
             if self.print_console:
                 print('target vels',this_vel_targets,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
+        ''' randomly sample 10 velocity profiles from each category. '''
+        indices = {k:np.random.choice(len(v), size=min(10,len(v)), replace=False) for k,v in self.velocity_profiles.items()}
+        self.velocity_profiles = {k:[x for idx,x in enumerate(v) if idx in indices[k]] for k,v in self.velocity_profiles.items()}
         if self.show_plots:
             plt.show()
            
@@ -528,60 +542,61 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
         same length as the index points
         '''
         v0 = self.v0
-        map = NYCMapInfo() 
-        max_stop_dist = map.get_max_stop_dist(NYCMapInfo.veh_centerline[0])
         self.velocity_profiles = dict()
         h_end, h_start = self.traj_constr_obj.stop_horizon_time_sampling_range[1], self.traj_constr_obj.stop_horizon_time_sampling_range[0]
-        for o_it,o_r in enumerate(np.linspace(h_end, h_start,5)):
-            if self.print_console:
-                print('-------iter',o_it)
-            
-            
-            
-            ''' fit the time scaled velocity curve'''
-            
-            stop_horizon = o_r
+        iter_attempts = 0
+        while len(self.velocity_profiles) == 0 and iter_attempts < 10:
+            h_end, h_start = h_end+(2*iter_attempts), max(h_start-(2*iter_attempts),1)
+            for o_it,o_r in enumerate(np.linspace(h_end, h_start,5)):
+                if self.print_console:
+                    print('-------iter',o_it)
+                
+                
+                
+                ''' fit the time scaled velocity curve'''
+                
+                stop_horizon = o_r
+                        
+                tcs = TriangulationCurve(self.v0,stop_horizon,10)
+                all_v_profiles = [(stop_horizon,x) for x in tcs.curves()]
+                
+                for st_h,v in all_v_profiles:
+                    self.cs_v = v
+                
+                    max_vel = self.cs_v(find_maxima_minima(True, self.cs_v, horizon))
                     
-            tcs = TriangulationCurve(self.v0,stop_horizon,10)
-            all_v_profiles = [(stop_horizon,x) for x in tcs.curves()]
-            
-            for st_h,v in all_v_profiles:
-                self.cs_v = v
-            
-                max_vel = self.cs_v(find_maxima_minima(True, self.cs_v, horizon))
-                
-                stop_dist = scipy.integrate.quad(self.cs_v,0,stop_horizon)[0]
-                '''
-                if stop_dist > max_stop_dist:
-                    continue
-                '''
-                if stop_dist > self.traj_constr_obj.stop_horizon_dist_sampling_range[1] or stop_dist < self.traj_constr_obj.stop_horizon_dist_sampling_range[0]:
-                    continue
-                
-                self.cs_a = self.cs_v.derivative(1)
-                self.cs_j = self.cs_v.derivative(2)
-                '''
-                max_acc = self.cs_a(find_maxima_minima(True, self.cs_a, horizon))
-                f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/arcl)
-                max_lat_acc = f_lat_acc_wrt_time(find_maxima_minima(True, f_lat_acc_wrt_time, horizon))
-                max_jerk = self.cs_j(find_maxima_minima(True, self.cs_j, horizon,1))
-                '''
-                self.cs_t_s = lambda x : scipy.integrate.quad(self.cs_v,0,x)[0]
-                max_acc = max([self.cs_a(x) for x in np.arange(0,horizon,.5)])
-                f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/self.arcl)
-                max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(0,horizon,.5)])
-                max_jerk = max([self.cs_j(x) for x in np.arange(0,horizon,.5)])
-                category = self.assign_mode(max_acc,max_lat_acc,max_vel,max_jerk)
-                if category != 'infeasible':
-                    entry = {'func':copy.deepcopy(self.cs_v),
-                             'target stop pt':st_h,'max_vel':max_vel,'max_acc':max_acc,'max_lat_acc':max_lat_acc,'max_jerk':max_jerk
-                             }
-                    if category not in self.velocity_profiles:
-                        self.velocity_profiles[category] = []
-                    self.velocity_profiles[category].append(entry)
-                if self.print_console:       
-                    print('target vels',st_h,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
-
+                    stop_dist = scipy.integrate.quad(self.cs_v,0,stop_horizon)[0]
+                    '''
+                    if stop_dist > max_stop_dist:
+                        continue
+                    '''
+                    if stop_dist > self.traj_constr_obj.stop_horizon_dist_sampling_range[1] or stop_dist < self.traj_constr_obj.stop_horizon_dist_sampling_range[0]:
+                        continue
+                    
+                    self.cs_a = self.cs_v.derivative(1)
+                    self.cs_j = self.cs_v.derivative(2)
+                    '''
+                    max_acc = self.cs_a(find_maxima_minima(True, self.cs_a, horizon))
+                    f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/arcl)
+                    max_lat_acc = f_lat_acc_wrt_time(find_maxima_minima(True, f_lat_acc_wrt_time, horizon))
+                    max_jerk = self.cs_j(find_maxima_minima(True, self.cs_j, horizon,1))
+                    '''
+                    self.cs_t_s = lambda x : scipy.integrate.quad(self.cs_v,0,x)[0]
+                    max_acc = max([self.cs_a(x) for x in np.arange(0,horizon,.5)])
+                    f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/self.arcl)
+                    max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(0,horizon,.5)])
+                    max_jerk = max([self.cs_j(x) for x in np.arange(0,horizon,.5)])
+                    category = self.assign_mode(max_acc,max_lat_acc,max_vel,max_jerk)
+                    if category != 'infeasible':
+                        entry = {'func':copy.deepcopy(self.cs_v),
+                                 'target stop pt':st_h,'max_vel':max_vel,'max_acc':max_acc,'max_lat_acc':max_lat_acc,'max_jerk':max_jerk
+                                 }
+                        if category not in self.velocity_profiles:
+                            self.velocity_profiles[category] = []
+                        self.velocity_profiles[category].append(entry)
+                    if self.print_console:       
+                        print('target vels',st_h,'max_vel',max_vel,'max_acc',max_acc,'max_lat_acc',max_lat_acc,'max_jerk',max_jerk,category)
+            iter_attempts += 1
 
 class PedestrianTrajectoryPlanner(TrajectoryPlanner):
     

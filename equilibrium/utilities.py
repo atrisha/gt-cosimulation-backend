@@ -68,11 +68,7 @@ class Utilities:
             return 1
         
     def progress_payoff_dist(self,dist,ag_type):
-        if ag_type == 'veh':
-            prog_util = min(dist / 20, 1)
-        else:
-            prog_util =  min(dist / 12, 1)
-        #print(ag_type,dist,prog_util)
+        prog_util = min(dist / 100, 1)
         return prog_util
         
     def combine_utils(self,prog_util,safe_util,thresh):
