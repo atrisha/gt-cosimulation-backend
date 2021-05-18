@@ -11,6 +11,7 @@ from collections import OrderedDict
 from matplotlib import animation
 from scipy.ndimage import gaussian_filter1d
 import math
+from equilibrium.range_estimation import MinDistanceGapModel
 
 def gaussian_smoothing(a):
     x, y = a.T
@@ -175,5 +176,19 @@ class Visualization:
                                interval=20, blit=False, repeat=False)
         plt.show()
         
-viz = Visualization()
-viz.show_nyc_trajectories_dynamic()
+class UniWeberAnalytics:
+    
+    def __init__(self,file_id):
+        self.file_id = file_id
+        
+    def plot_velocities(self):
+        
+        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
+        c = conn.cursor()
+        ''' get all vehicle trajectories '''
+        q_string = "select TRAJECTORY_METADATA.TRAJ_ID, TRAJECTORY_METADATA.MANEUVER,TRAJECTORY_METADATA.MANEUVER_MODE from TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 AND TRAJECTORY_METADATA.AGENT_TYPE='agent_1'"
+        c.execute(q_string)
+        res = c.fetchall()
+        m = MinDistanceGapModel(self.file_id)
+        
+        

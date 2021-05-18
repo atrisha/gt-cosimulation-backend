@@ -183,7 +183,7 @@ class TrajectoryPlanner:
         self.traj_constr_obj = traj_constr_obj
         self.v0 = traj_constr_obj.init_vel
         self.vel_pts = None
-        self.centerline = traj_constr_obj.waypoints
+        self.centerline = traj_constr_obj.waypoints 
         self.maneuver = maneuver
         self.mode = mode
         if maneuver not in WAIT_MANEUVERS:
@@ -239,7 +239,13 @@ class TrajectoryPlanner:
         if self.print_console:
             print(indx)
         if len(indx) > 2 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
-            self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=2)
+            try:
+                self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=2)
+            except ValueError:
+                print(indx,[x[0] for x in self.centerline])
+                #plt.plot(indx,[x[0] for x in self.centerline])
+                #plt.show()
+                raise
         else:
             #self.cs_x = interp1d(indx,[x[0] for x in self.centerline])
             self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=1)

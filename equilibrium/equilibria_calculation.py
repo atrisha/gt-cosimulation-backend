@@ -11,7 +11,7 @@ from shapely.geometry import Polygon, LineString
 from equilibrium.utilities import Utilities
 from code_utils.utils import lighten_color
 import itertools
-from planners.planning_objects import TrajectoryFragment
+from equilibrium.gametree_objects import TrajectoryFragment
 from typing import List
 from code_utils import utils
 from shapely.geometry import multipoint, point, linestring, multilinestring, GeometryCollection
@@ -381,10 +381,24 @@ class SatisficingEquilibria:
                         eqsoln_obj.set_veh_utils(veh_eq_utils)
                         eqsoln_obj.set_peds_utils(peds_eq_utils)
                         eq_solns.append(eqsoln_obj)
+                    for ag,actions in node.actions.items():
+                        for act in actions:
+                            act_length = act.length
+                            if not hasattr(act._next_node, 'on_mspe_eq'):
+                                act._next_node.on_mspe_eq = {'agent_1':np.full(shape = (gamma_matrix[0].shape[0],gamma_matrix[1].shape[0]), fill_value=False), 'agent_2':np.full(shape = (gamma_matrix[0].shape[0],gamma_matrix[1].shape[0]), fill_value=False)}
+                            if ag == 'agent_1':
+                                act._next_node.on_mspe_eq[ag][i,j] = any([min(x.veh_eq_acts) <= act_length <= max(x.veh_eq_acts) for x in eq_solns])
+                            else:
+                                act._next_node.on_mspe_eq[ag][i,j] = any([min(x.peds_eq_acts) <= act_length <= max(x.peds_eq_acts) for x in eq_solns])
+                            
                     node.equilibrium_solutions[i,j] = eq_solns
                     #print(node.level,'equilibrium',[x.veh_eq_acts for x in eq_solns], [x.peds_eq_acts for x in eq_solns])
                 else:
                     node.equilibrium_solutions[i,j] = None
+        
+                
+                
+            
         return node.equilibrium_solutions
         
         

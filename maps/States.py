@@ -14,11 +14,12 @@ from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajec
 import math
 from operator import itemgetter
 import matplotlib.pyplot as plt
+from collections import defaultdict
 
 class ScenarioDef:
     
     def _setup_1shotrepo_state(self,veh_track):
-        conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+'769'+'\\uni_weber_'+'769'+'.db')
+        conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
         c = conn.cursor()
         oneshot_vehstate = OneshotRepoVehicleState()
         oneshot_vehstate.id = veh_track[0][0]
@@ -33,7 +34,7 @@ class ScenarioDef:
         return oneshot_vehstate
     
     def setup_database(self,file_id): 
-        conn = sqlite3.connect('D:\\repeated_games_data\\'+file_id+'.db')
+        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+file_id+'.db')
         c = conn.cursor()
         q_string = "CREATE TABLE IF NOT EXISTS TRAJECTORIES ( `TRACK_ID` INTEGER, `X` NUMERIC, `Y` NUMERIC, `SPEED` NUMERIC, `TAN_ACC` NUMERIC, `LAT_ACC` NUMERIC, `TIME` NUMERIC, `ANGLE` NUMERIC, `TRAFFIC_REGIONS` TEXT )"
         c.execute(q_string)
@@ -51,45 +52,91 @@ class ScenarioDef:
         c.execute(q_string)
         conn.commit()
         
-    def __init__(self,agent_1_id, agent_2_id,file_id,initialize_db):
+    
+    ''' from https://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list'''
+    def list_duplicates(self,seq):
+        tally = defaultdict(list)
+        for i,item in enumerate(seq):
+            tally[item].append(i)
+        return ((key,locs) for key,locs in tally.items() 
+                                if len(locs)>1)
+
+    def _remove_duplicate(self,path):
+        dup_indxs = []
+        for dup in sorted(self.list_duplicates([x[0] for x in path])):
+            dup_indxs += dup[1][1:]
+        _newpath = [x for idx,x in enumerate(path) if idx not in dup_indxs]
+        return _newpath
+        
+    def __init__(self,agent_1_id, agent_2_id,file_id,initialize_db,start_ts):
         
         constants.CURRENT_FILE_ID = file_id
         conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
         c = conn.cursor()
-        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" WHERE TRAJECTORIES_0769.TRACK_ID="+str(agent_1_id)+" ORDER BY TIME"
+        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" WHERE TRAJECTORIES_0"+constants.CURRENT_FILE_ID+".TRACK_ID="+str(agent_1_id)+" AND TIME >= "+str(start_ts)+" ORDER BY TIME"
         c.execute(q_string)
         agent1_res = c.fetchall()
         agent1_path = [(x[1],x[2]) for idx,x in enumerate(agent1_res) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent1_res)-1, num=10)]]
-        
+        agent1_path = self._remove_duplicate(agent1_path)
         ''' Get the track of a representative straight through vehicle to construct a path centerline '''
-        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" WHERE TRAJECTORIES_0769.TRACK_ID="+str(agent_2_id)+" ORDER BY TIME"
+        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" WHERE TRAJECTORIES_0"+constants.CURRENT_FILE_ID+".TRACK_ID="+str(agent_2_id)+" AND TIME >= "+str(start_ts)+"  ORDER BY TIME"
         c.execute(q_string)
         agent2_res = c.fetchall()
-        agent2_path = [(x[1],x[2]) for idx,x in enumerate(agent2_res) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res)-1, num=10)]]
-        agent2_start_ts = agent2_res[0][6]
-        agent1_start_ts = agent1_res[0][6]
-        agent_1_attribs = {'x':agent1_res[0][1], 'y':agent1_res[0][2], 'velocity':agent1_res[0][3]/3.6, 'waypoints':agent1_path, 'file_time':agent1_start_ts, 'id':agent_1_id}
-        if agent2_start_ts > agent1_start_ts:
-            oneshot_vehstate = self._setup_1shotrepo_state(agent2_res)
-            oneshot_vehstate.current_time = agent1_start_ts
-            interpolated_track = interpolate_track_info(veh_state = oneshot_vehstate, forward = False, backward = True, partial_track = None)
-            agent2_path = [(interpolated_track[1],interpolated_track[2])] + agent2_path
-            agent_2_attribs = {'x':interpolated_track[1], 'y':interpolated_track[2], 'velocity':interpolated_track[3], 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
-        elif agent2_start_ts == agent1_start_ts:
-            agent_2_attribs = {'x':agent2_res[0][1], 'y':agent2_res[0][2], 'velocity':agent2_res[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
+        if len(agent1_res)==0 or len(agent2_res)==0:
+            self.time_crossed = True
         else:
-            agent2_res_trunc = None
-            for idx,pt in enumerate(agent2_res):
-                if abs(pt[6]-agent1_start_ts) < 0.3:
-                    agent2_res_trunc = agent2_res[idx:]
+            self.time_crossed = False
+            agent2_path = [(x[1],x[2]) for idx,x in enumerate(agent2_res) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res)-1, num=10)]]
+            agent2_path = self._remove_duplicate(agent2_path)
+            agent2_start_ts = agent2_res[0][6]
+            agent1_start_ts = agent1_res[0][6]
+            agent_1_attribs = {'x':agent1_res[0][1], 'y':agent1_res[0][2], 'velocity':agent1_res[0][3]/3.6, 'waypoints':agent1_path, 'file_time':agent1_start_ts, 'id':agent_1_id}
+            if agent2_start_ts > agent1_start_ts:
+                oneshot_vehstate = self._setup_1shotrepo_state(agent2_res)
+                oneshot_vehstate.current_time = agent1_start_ts
+                interpolated_track = interpolate_track_info(veh_state = oneshot_vehstate, forward = False, backward = True, partial_track = None)
+                agent2_path = [(interpolated_track[1],interpolated_track[2])] + agent2_path
+                agent_2_attribs = {'x':interpolated_track[1], 'y':interpolated_track[2], 'velocity':interpolated_track[3], 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
+            elif agent2_start_ts == agent1_start_ts:
+                agent_2_attribs = {'x':agent2_res[0][1], 'y':agent2_res[0][2], 'velocity':agent2_res[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
+            else:
+                agent2_res_trunc = None
+                for idx,pt in enumerate(agent2_res):
+                    if abs(pt[6]-agent1_start_ts) < 0.3:
+                        agent2_res_trunc = agent2_res[idx:]
+                        break
+                agent2_path = [(x[1],x[2]) for idx,x in enumerate(agent2_res_trunc) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res_trunc)-1, num=10)]]
+                agent2_path = self._remove_duplicate(agent2_path)
+                agent_2_attribs = {'x':agent2_res_trunc[0][1], 'y':agent2_res_trunc[0][2], 'velocity':agent2_res_trunc[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
+            self.agent1 = VehicleState(agent_1_attribs)
+            self.agent2 = VehicleState(agent_2_attribs)
+            file_id = constants.CURRENT_FILE_ID+'_'+str(agent_1_id)+'_'+str(agent_2_id)+'_'+str(agent1_start_ts).replace('.',',')
+            self.agent1_emp_traj, self.agent2_emp_traj = [], []
+            for tp in agent1_res:
+                if 2 - (tp[6]-agent1_start_ts) < 0.3 and len(self.agent1_emp_traj)==0:
+                    traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
+                    self.agent1_emp_traj.append(traj_l)
+                if 4 - (tp[6]-agent1_start_ts) < 0.3 and len(self.agent1_emp_traj)==1:
+                    traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
+                    self.agent1_emp_traj.append(traj_l)
+                if 6 - (tp[6]-agent1_start_ts) < 0.3 and len(self.agent1_emp_traj)==2:
+                    traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
+                    self.agent1_emp_traj.append(traj_l)
                     break
-            agent2_path = [(x[1],x[2]) for idx,x in enumerate(agent2_res_trunc) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res_trunc)-1, num=10)]]
-            agent_2_attribs = {'x':agent2_res_trunc[0][1], 'y':agent2_res_trunc[0][2], 'velocity':agent2_res_trunc[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
-        self.agent1 = VehicleState(agent_1_attribs)
-        self.agent2 = VehicleState(agent_2_attribs)
-        file_id = constants.CURRENT_FILE_ID+'_'+str(agent_1_id)+'_'+str(agent_2_id)+'_'+str(agent1_start_ts).replace('.',',')
-        if initialize_db:
-            self.setup_database(file_id)
+            for tp in agent2_res:
+                if 2 - (tp[6]-agent2_start_ts) < 0.3 and len(self.agent2_emp_traj)==0:
+                    traj_l = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
+                    self.agent2_emp_traj.append(traj_l)
+                if 4 - (tp[6]-agent1_start_ts) < 0.3 and len(self.agent2_emp_traj)==1:
+                    traj_l = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
+                    self.agent2_emp_traj.append(traj_l)
+                if 6 - (tp[6]-agent2_start_ts) < 0.3 and len(self.agent2_emp_traj)==2:
+                    traj_l = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
+                    self.agent2_emp_traj.append(traj_l)
+                    break
+                
+            if initialize_db:
+                self.setup_database(file_id)
             
     def setup_trajectory_constraints(self):
         maneuver_constraints = {'agent_1':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':self.agent1},'agent_2':{'maneuvers':{'wait':None,'track_speed':None}, 'agent_state':self.agent2}}

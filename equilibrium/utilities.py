@@ -8,8 +8,13 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 import math
 import scipy.special
-
-
+import matplotlib.pyplot as plt
+from code_utils import utils
+from code_utils.utils import lighten_color
+from matplotlib import cm
+from matplotlib.ticker import LinearLocator
+import itertools
+from matplotlib.ticker import MaxNLocator
 
 
 
@@ -82,4 +87,72 @@ class Utilities:
                 return safe_util
             else:
                 return prog_util
+            
+    def plot(self):
+        plt.figure()
+        plt.title('safety util')
+        plt.xlabel('distance gap (meters)')
+        plt.ylabel('utility')
+        X = [x for x in np.arange(0,20,.25)]
+        Y = [self.calc_safe_payoff(x) for x in np.arange(0,20,.25)]
+        plt.plot(X,Y)
+        
+        plt.figure()
+        plt.title('progress util')
+        plt.xlabel('trajectory length (meters)')
+        plt.ylabel('utility')
+        X = [x for x in np.arange(0,120,.25)]
+        Y = [self.progress_payoff_dist(x,1) for x in np.arange(0,120,.25)]
+        plt.plot(X,Y)
+        plt.show()
+        '''
+        plt.figure()
+        plt.title('combined util')
+        plt.xlabel('trajectory length (meters)')
+        plt.ylabel('utility')
+        gamma_list = enumerate(np.linspace(start=-1, stop=1, num=5))
+        for idx,g in gamma_list:
+            X = [x for x in np.arange(0,100,.25)]
+            Y = [self.combine_utils(self.progress_payoff_dist(x,1), self.calc_safe_payoff(x), g) for x in np.arange(0,100,.25)]
+            f = (idx/(len(gamma_list)-1))*.75
+            plt.plot(X,Y,c=lighten_color('red',f))
+        '''
+        Xs = np.linspace(start=0, stop=20, num=50)
+        Ys = np.linspace(start=0, stop=120, num=50)
+        xyz1, xyz2, xyz3 = [], [] , []
+        for z in itertools.product(Xs,Ys):
+            xyz1.append((z[0],z[1],self.combine_utils(self.progress_payoff_dist(z[1], 1), self.calc_safe_payoff(z[0]), 0)))
+            #xyz2.append((z[0],z[1],self.combine_utils(self.progress_payoff_dist(z[1], 1), self.calc_safe_payoff(z[0]), 0)))
+            #xyz3.append((z[0],z[1],self.combine_utils(self.progress_payoff_dist(z[1], 1), self.calc_safe_payoff(z[0]), 0.5)))
+        Xs1 = [x[0] for x in xyz1]
+        Ys1 = [x[1] for x in xyz1]
+        Zs1 = [x[2] for x in xyz1]
+        
+        Xs2 = [x[0] for x in xyz2]
+        Ys2 = [x[1] for x in xyz2]
+        Zs2 = [x[2] for x in xyz2]
+        
+        Xs3 = [x[0] for x in xyz3]
+        Ys3 = [x[1] for x in xyz3]
+        Zs3 = [x[2] for x in xyz3]
+        
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        
+        ax.plot_trisurf(Xs1, Ys1, Zs1, cmap=cm.YlGn, linewidth=0)
+        #ax.plot_trisurf(Xs2, Ys2, Zs2, cmap=cm.Blues, linewidth=0)
+        #ax.plot_trisurf(Xs3, Ys3, Zs3, cmap=cm.Purples, linewidth=0)
+        #fig.colorbar(surf)
+        ax.set_ylabel('trajectory length (meters)')
+        ax.set_xlabel('distance gap (meters)')
+        ax.set_zlabel('utility')
+        ax.xaxis.set_major_locator(MaxNLocator(5))
+        ax.yaxis.set_major_locator(MaxNLocator(6))
+        ax.zaxis.set_major_locator(MaxNLocator(5))
+        
+        fig.tight_layout()
+        
+        plt.show() # or:
+        
+
         

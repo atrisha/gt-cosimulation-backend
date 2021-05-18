@@ -8,7 +8,7 @@ Created on Apr 14, 2021
 import numpy as np
 import sqlite3
 import itertools
-from planners.planning_objects import VehicleState, PedestrianState, TrajectoryFragment
+from planners.planning_objects import VehicleState, PedestrianState
 import time
 from equilibrium.equilibria_calculation import SatisficingEquilibria
 import copy
@@ -20,8 +20,17 @@ from numpy import linalg as LA
 import math
 from maps.States import ScenarioDef
 import constants
+import csv
+from all_utils.utils import pickle_dump_to_dir
+import rg_constants
+import os
+import traceback
+import sys
+from equilibrium.range_estimation import MinDistanceGapModel
+from equilibrium.gametree_objects import TrajectoryCache, TrajectoryFragment
 
-
+log = constants.common_logger
+from equilibrium.automata_strategies import *
 
 show_plots = False
 
@@ -40,6 +49,55 @@ act_dict = {'pedestrian':{
 
 modes = ['normal','aggressive']
 
+
+class AssignDistRanges:
+        
+    
+    def assign_distranges(self,node,last_decision_level,model):
+        if node.level == last_decision_level:
+            self.predict_dist_ranges(node, model, last_decision_level)
+        else:
+            if not node.is_leaf: 
+                for c in node.children:
+                    self.assign_distranges(c,last_decision_level,model)
+                if not node.is_root:
+                    self.predict_dist_ranges(node, model, last_decision_level)
+                else:
+                    node.automata_strategy_info = None
+            else:
+                node.automata_strategy_info = None
+    
+    def predict_dist_ranges(self, node, model, last_decision_level):
+        node.automata_strategy_info = dict()
+        for ag in ['agent_1','agent_2']:
+            obs_trajl = [node.path_from_root[ag].length]
+            obs_manvs = [node.path_from_root[ag].manv]
+            obs_manvs_mode = [node.path_from_root[ag].manv_mode]
+            distgap_model = model.distgap_model_agent_1 if ag == 'agent_1' else model.distgap_model_agent_2
+            wait_manv = 'wait'
+            proceed_manv = 'turn' if ag == 'agent_1' else 'track_speed'
+            predicted_distgap_range = distgap_model.predict(list(zip(obs_trajl,obs_manvs)), {'wait':wait_manv,'proceed':proceed_manv})
+            automata_strat_info = [(obs_manvs[-1],predicted_distgap_range)]
+            if node.level == last_decision_level and node.level > 2:
+                obs_trajl.append(obs_trajl[-1]+node.path_from_root[ag].next_fragment.length)
+                obs_manvs.append(node.path_from_root[ag].next_fragment.manv)
+                obs_manvs_mode.append(node.path_from_root[ag].next_fragment.manv_mode)
+                predicted_distgap_range = distgap_model.predict(list(zip(obs_trajl,obs_manvs)), {'wait':wait_manv,'proceed':proceed_manv})
+                automata_strat_info.append((obs_manvs[-1],predicted_distgap_range))
+            ac_auto = AccommodatingGamma(wait_manv,proceed_manv)
+            ac_auto_gamma = ac_auto.accepts(automata_strat_info)
+            nac_auto = NonAccomodatingGamma(wait_manv,proceed_manv)
+            nac_auto_gamma = nac_auto.accepts(automata_strat_info)
+            
+            node.automata_strategy_info[ag] = {'obs_trajl':obs_trajl,
+                                               'obs_manvs':obs_manvs,
+                                               'obs_manvs_mode':obs_manvs_mode,
+                                               'predicted_distgap_range':predicted_distgap_range,
+                                               'ac_auto_gamma':ac_auto_gamma,
+                                               'nac_auto_gamma':nac_auto_gamma}
+            
+            
+        
         
 class Actions:
     
@@ -81,7 +139,7 @@ class Actions:
         
         if insert_into_db:
             parent_traj_id = None
-            conn = sqlite3.connect('D:\\repeated_games_data\\'+file_id+'.db')
+            conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+file_id+'.db')
             c = conn.cursor()
             i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
             i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?,?)'
@@ -106,7 +164,7 @@ class Actions:
         return agent1_trajs, agent2_trajs
     
     def insert_interaction_data(self):
-        conn = sqlite3.connect('D:\\repeated_games_data\\right_turn_data.db')
+        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\right_turn_data.db')
         c = conn.cursor()
         q_string = "select TRAJECTORY_METADATA.TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='agent_1'"
         c.execute(q_string)
@@ -285,7 +343,7 @@ class TreeBuilder:
         
     def get_current_states(self,time_intervals,maneuver_constraints):
         state_lattice = dict()
-        conn = sqlite3.connect('D:\\repeated_games_data\\'+self.file_id+'.db')
+        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
         c = conn.cursor()
         for t in time_intervals:
             print('---------------------',t,'secs ---------------------------------')
@@ -334,7 +392,7 @@ class TreeBuilder:
         return state_lattice
     
     def insert_trajs_into_db(self,trajs, ag, init_time, parent_traj_id):
-        conn = sqlite3.connect('D:\\repeated_games_data\\'+self.file_id+'.db')
+        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
         c = conn.cursor()
         i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
         i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?,?)'
@@ -395,28 +453,6 @@ class TreeBuilder:
 
 
 
-class TrajectoryCache:
-    
-    def __init__(self,init_time,time_range,ag_type,file_id):
-        conn = sqlite3.connect('D:\\repeated_games_data\\'+file_id+'.db')
-        c = conn.cursor()
-        if ag_type is not None:
-            q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID IN ( \
-                    select TRAJECTORY_METADATA.TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME="+str(init_time)+" AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"') \
-                    AND TRAJECTORIES.TIME BETWEEN "+str(time_range[0]-init_time)+" AND "+str(time_range[1]-init_time)
-        else:
-            q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID IN ( \
-                    select TRAJECTORY_METADATA.TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME="+str(init_time)+") \
-                    AND TRAJECTORIES.TIME BETWEEN "+str(time_range[0]-init_time)+" AND "+str(time_range[1]-init_time)
-        c.execute(q_string)
-        res = c.fetchall()
-        self.traj_cache = dict()
-        for row in res:
-            if row[0] not in self.traj_cache:
-                self.traj_cache[row[0]] = dict()
-                self.traj_cache[row[0]][time_range] = []
-            self.traj_cache[row[0]][time_range].append(row)
-        
 
         
     
@@ -500,13 +536,41 @@ class Node:
     @children.setter
     def children(self, value):
         self._children = value
+    
+    
+    def size(self,last_decision_level):
+        if self.level == last_decision_level:
+            return 1
+        else:
+            if not self.is_leaf: 
+                nc = 0
+                for c in self.children:
+                    nc += c.size(last_decision_level)
+                return nc
+    
+    def assign_predicted_distgaps(self,model):
+        agent_1_trajl = [self.path_from_root['agent_1'].length]
+        agent_2_trajl = [self.path_from_root['agent_2'].length]
         
+    
 class GameTree:
     
     counter = 1
     
     def __init__(self,file_id):
         self.file_id = file_id
+        
+    
+    def _process_zero_change_tree(self,level_nodes_6s):
+        v_tcache_4_6 = TrajectoryCache(init_time=0,time_range=(0,6),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6 = TrajectoryCache(init_time=0,time_range=(0,6),ag_type='agent_2',file_id=self.file_id)
+        _ext_id = GameTree.counter
+        self.root = Node(0,None,_ext_id)
+        GameTree.counter += 1
+        self.root.children = []
+        
+        
+        
         
     def _process_two_change_tree(self,level_nodes_xs,x,level_nodes_6s):
         v_tcache_4_6 = TrajectoryCache(init_time=x,time_range=(x,6),ag_type='agent_1',file_id=self.file_id)
@@ -609,7 +673,7 @@ class GameTree:
         
     
     def build_level_nodes(self, level):
-        conn = sqlite3.connect('D:\\repeated_games_data\\'+self.file_id+'.db')
+        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
         c = conn.cursor()
         all_level_nodes = dict()
             
@@ -748,17 +812,64 @@ class GameTree:
                 
         return all_level_nodes
 
-initialize_db = False
-scene_def = ScenarioDef(8,23,'769',initialize_db=initialize_db)
-maneuver_constraints = scene_def.setup_trajectory_constraints()
-if initialize_db:
-    tree_builder = TreeBuilder()
-    tree_builder.build_complete_tree(maneuver_constraints)
 
-file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
-gt = GameTree(file_id)
-gt.build_tree()
-type(gt.root).progress_ctr = 0
-start_time = time.time()
-gt.solve(SatisficingEquilibria())
-print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
+if __name__ == '__main__':
+    initialize_db = True
+    initialize_files = False
+    with open(rg_constants.SCENE_OUT_PATH,newline='\n') as csv_file:
+        sc_reader = csv.reader(csv_file, delimiter=',')
+        line_count = 0
+        for row in sc_reader:
+            if not initialize_files:
+                if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')) and \
+                    os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.scenedef')):
+                    print('row',row,'processed...continuing')
+                    continue
+            dbfile_id = row[0]
+            agent1_id = int(row[3])
+            agent2_id = int(row[4])
+            start_ts = float(row[5])
+            
+            print('processing',dbfile_id,line_count+1,agent1_id,agent2_id)
+            try:
+                scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts)
+                if scene_def.time_crossed:
+                    continue
+                maneuver_constraints = scene_def.setup_trajectory_constraints()
+                if initialize_db:
+                    tree_builder = TreeBuilder()
+                    tree_builder.build_complete_tree(maneuver_constraints)
+                
+                file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+                gt = GameTree(file_id)
+                gt.build_tree()
+                type(gt.root).progress_ctr = 0
+                type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
+                start_time = time.time()
+                gt.solve(SatisficingEquilibria())
+                drassign_obj = AssignDistRanges()
+                m = MinDistanceGapModel(file_id)
+                m.build_model()   
+                drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
+                pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'), gt)
+                pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.scenedef'), scene_def)
+                print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
+            except Exception as e:
+                    # Get current system exception
+                ex_type, ex_value, ex_traceback = sys.exc_info()
+            
+                # Extract unformatter stack traces as tuples
+                trace_back = traceback.extract_tb(ex_traceback)
+            
+                # Format stacktrace
+                stack_trace = list()
+            
+                for trace in trace_back:
+                    stack_trace.append("File : %s , Line : %d, Func.Name : %s, Message : %s" % (trace[0], trace[1], trace[2], trace[3]))
+                log.warn('caught and recorded exception in file')
+                with open(rg_constants.FAILED_FILES_PATH, mode='a') as failed_file:
+                    fail_writer = csv.writer(failed_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                    msg = row + [str(ex_type.__name__),str(ex_value),str(stack_trace)]
+                    fail_writer.writerow(msg)
+                
+            line_count += 1
