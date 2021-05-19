@@ -266,7 +266,15 @@ class TrajectoryPlanner:
         xspl_order,yspl_order = 2,2
         if self.print_console:
             print(indx)
-        if len(indx) > 2 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
+        if len(indx) > 3 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
+            try:
+                self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=3)
+            except ValueError:
+                print(indx,[x[0] for x in self.centerline])
+                #plt.plot(indx,[x[0] for x in self.centerline])
+                #plt.show()
+                raise
+        elif len(indx) > 2 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
             try:
                 self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=2)
             except ValueError:
@@ -278,7 +286,15 @@ class TrajectoryPlanner:
             #self.cs_x = interp1d(indx,[x[0] for x in self.centerline])
             self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=1)
             xspl_order = 1
-        if len(indx) > 2 and not (min([x[1] for x in self.centerline]) == max([x[1] for x in self.centerline])):
+        
+        if len(indx) > 3 and not (min([x[1] for x in self.centerline]) == max([x[1] for x in self.centerline])):
+            try:
+                _x = indx
+                _y = [x[1] for x in self.centerline]
+                self.cs_y = UnivariateSpline(_x,_y,k=3)
+            except:
+                raise
+        elif len(indx) > 2 and not (min([x[1] for x in self.centerline]) == max([x[1] for x in self.centerline])):
             try:
                 _x = indx
                 _y = [x[1] for x in self.centerline]
