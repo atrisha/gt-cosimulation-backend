@@ -130,7 +130,7 @@ class ScenarioDef:
                 if 2 - (tp[6]-agent2_start_ts) < 0.3 and len(self.agent2_emp_traj)==0:
                     traj_l = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
                     self.agent2_emp_traj.append(traj_l)
-                if 4 - (tp[6]-agent1_start_ts) < 0.3 and len(self.agent2_emp_traj)==1:
+                if 4 - (tp[6]-agent2_start_ts) < 0.3 and len(self.agent2_emp_traj)==1:
                     traj_l = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
                     self.agent2_emp_traj.append(traj_l)
                 if 6 - (tp[6]-agent2_start_ts) < 0.3 and len(self.agent2_emp_traj)==2:

@@ -287,11 +287,17 @@ class TrajectoryPlanner:
             #self.cs_y = interp1d(indx,[x[1] for x in self.centerline])
             self.cs_y = UnivariateSpline(indx,[x[1] for x in self.centerline],k=1)
             yspl_order = 1
+        err_x = self.cs_x(0) - self.centerline[0][0]
+        x_corrected = lambda x : self.cs_x(x) - err_x
+        err_y = self.cs_y(0) - self.centerline[0][1]
+        y_corrected = lambda x : self.cs_y(x) - err_y
+                    
         residuals = []
         for _i,i in enumerate(indx):
-            _res = math.hypot(self.cs_x(i)-self.centerline[_i][0], self.cs_y(i)-self.centerline[_i][1])
+            _res = math.hypot(x_corrected(i)-self.centerline[_i][0], y_corrected(i)-self.centerline[_i][1])
             residuals.append(_res)
         _max_res = max(residuals)
+        print(residuals)
         if _max_res > constants.CAR_WIDTH/2:
             warnings.warn(message = "Generated path "+str(_max_res)+"m away. Tolerance was set to "+str(constants.CAR_WIDTH/2)+"m", category = UserWarning)
         
@@ -308,7 +314,7 @@ class TrajectoryPlanner:
         if self.show_plots:
             plt.figure()
             plt.title('path')
-            plt.plot([self.cs_x(x) for x in plot_indx_x],[self.cs_y(x) for x in plot_indx_x])
+            plt.plot([x_corrected(x) for x in plot_indx_x],[y_corrected(x) for x in plot_indx_x])
             plt.plot([x[0] for x in self.centerline],[x[1] for x in self.centerline],'x')
             plt.figure()
             plt.title('curvature')
@@ -402,6 +408,10 @@ class TrajectoryPlanner:
                         v_corrected = lambda x : self.cs_v(x) - err
                     else:
                         v_corrected = self.cs_v
+                    err_x = self.cs_x(0) - self.centerline[0][0]
+                    x_corrected = lambda x : self.cs_x(x) - err_x
+                    err_y = self.cs_y(0) - self.centerline[0][1]
+                    y_corrected = lambda x : self.cs_y(x) - err_y
                     for t in time_st:
                         if t <= horizon:
                             #s = self.t_s_map[t]
@@ -412,7 +422,7 @@ class TrajectoryPlanner:
                             if not stopped_traj:
                                 #math.atan2(self.cs_y(s/self.arcl)-traj[-1][2], self.cs_x(s/self.arcl)-traj[-1][1])
                                 yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
-                                traj.append((t,self.cs_x(s/self.arcl),self.cs_y(s/self.arcl),v_corrected(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl),yaw))
+                                traj.append((t,x_corrected(s/self.arcl),y_corrected(s/self.arcl),v_corrected(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl),yaw))
                             else:
                                 traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7]))
                         else:

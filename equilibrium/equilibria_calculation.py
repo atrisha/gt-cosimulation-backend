@@ -123,7 +123,6 @@ class AutoStrategyResponse(Equilibria):
         self.gamma_matrix = gamma_matrix
         ''' agent_1=0 agent_2 = 1'''
         #gamma_matrix = [np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20)]
-        node.equilibrium_solutions = np.empty(shape= (gamma_matrix[0].shape[0],gamma_matrix[1].shape[0]), dtype=object)
         u = Utilities()
         veh_acts.sort(key=lambda x: x.length)
         ped_acts.sort(key=lambda x: x.length)

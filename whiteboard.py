@@ -340,6 +340,6 @@ def generate_trajectories(vehicle):
     return trajectories
 
 constants.CURRENT_FILE_ID = '769'
-vehicle = all_utils.utils.setup_vehicle_state(7, 0)
+vehicle = all_utils.utils.setup_vehicle_state(11, 2.002)
 trajs = generate_trajectories(vehicle)
 f=1
