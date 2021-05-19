@@ -297,7 +297,6 @@ class TrajectoryPlanner:
             _res = math.hypot(x_corrected(i)-self.centerline[_i][0], y_corrected(i)-self.centerline[_i][1])
             residuals.append(_res)
         _max_res = max(residuals)
-        print(residuals)
         if _max_res > constants.CAR_WIDTH/2:
             warnings.warn(message = "Generated path "+str(_max_res)+"m away. Tolerance was set to "+str(constants.CAR_WIDTH/2)+"m", category = UserWarning)
         
