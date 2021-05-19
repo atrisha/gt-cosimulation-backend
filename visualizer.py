@@ -191,4 +191,6 @@ class UniWeberAnalytics:
         res = c.fetchall()
         m = MinDistanceGapModel(self.file_id)
         
+    
+        
         

@@ -17,6 +17,7 @@ from code_utils import utils
 from shapely.geometry import multipoint, point, linestring, multilinestring, GeometryCollection
 from statistics import mean
 from collections import OrderedDict
+from code_utils.code_util_objects import RunContext
 
 
 show_plots = False
@@ -41,7 +42,7 @@ class EquilibriaSolution:
         self.peds_eq_utils = peds_utils
         
 
-class SatisficingEquilibria:
+class Equilibria:
         
     
     '''
@@ -100,7 +101,86 @@ class SatisficingEquilibria:
         ''' for agent_2, the indexes should be flipped since i is always agent_1, and agent_2 br matrix had i as agent_2 threshold'''
         peds_br_range = (peds_br_map[peds_br_key][0][j,i], peds_br_map[peds_br_key][1][j,i])
         return (veh_br_range,peds_br_range)
+    
+    def __init__(self,run_context = None):
+        if run_context is None:
+            self.run_context = RunContext()
+        else:
+            self.run_context = run_context
                 
+class RobustEquilibria(Equilibria):
+    def _ac_auto_util(self,ag_i_traj_frag, ag_minus_i_traj_frag, gamma, safe_util, prog_util):
+        exp_util = None
+        ag_minus_i_label = 'agent_1'
+        if ag_minus_i_traj_frag.manv == self.run_context[ag_minus_i_label]['wait']:
+            f=1 
+        
+    def is_likely(self,traj_frag_list,agent_label):
+        f=1
+           
+    def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        type(node).progress_ctr += 1
+        #print('processing node level',node.level,'id:',node._ext_id)
+        print('solving node',type(node).progress_ctr,'/',type(node).tree_size)
+        gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
+        self.gamma_matrix = gamma_matrix
+        ''' agent_1=0 agent_2 = 1'''
+        #gamma_matrix = [np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20)]
+        node.equilibrium_solutions = np.empty(shape= (gamma_matrix[0].shape[0],gamma_matrix[1].shape[0]), dtype=object)
+        u = Utilities()
+        veh_acts.sort(key=lambda x: x.length)
+        ped_acts.sort(key=lambda x: x.length)
+        ''' agent_2 best response to agent_1's trajectory length'''
+        
+        interac_dict = OrderedDict()
+        ag_2_resp = []
+        for ag1_tf in veh_acts:
+            for ag2_tf in ped_acts:
+                dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
+                safety_payoff = u.calc_safe_payoff(dist_gap)
+                ag1_ac_gamma = node.automata_strategy_info['agent_1']['ac_auto_gamma']
+                ag1_nac_gamma = node.automata_strategy_info['agent_1']['nac_auto_gamma']
+                ag1_tf.is_ac_likely, ag2_tf.is_ac_likely = True,True
+                ag1_tf.is_nac_likely, ag2_tf.is_nac_likely = True,True
+                if ag1_tf.manv == self.run_context.manv_map['agent_1']['proceed'] and not type(ag1_ac_gamma) is bool and(safety_payoff < ag1_ac_gamma[0] or safety_payoff < ag1_ac_gamma[1]):
+                    ag1_tf.is_ac_likely = False
+                if ag1_tf.manv == self.run_context.manv_map['agent_1']['wait'] and not type(ag1_nac_gamma) is bool and (safety_payoff > ag1_nac_gamma[0] or safety_payoff > ag1_nac_gamma[1]):
+                    ag1_tf.is_nac_likely = False
+                '''
+                check the running dynamics and if this action of agent 1 is unlikely based on the running
+                dynamics, then there is no need to respond, since this action will never be taken.
+                '''
+                if (self.run_context.acc_dynamic and not ag1_tf.is_ac_likely) \
+                    and (self.run_context.non_acc_dynamic and not ag1_tf.is_nac_likely):
+                    continue
+                step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), u.calc_safe_payoff(dist_gap), gamma_matrix[1])
+                if node.level == last_decision_level:
+                    cont_util = np.copy(step_util)
+                else:
+                    f = np.vectorize(self._max_util)
+                    cont_util = f(ag2_tf._next_node.equilibrium_solutions,1)
+                    cont_util = cont_util.T
+                    #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
+                _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
+                if np.isnan(cont_util).any():
+                    continue
+                _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+                manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
+                traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
+                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'), dtype=[('manv', str), ('traj_l', float), ('utils', float)])
+                ag_2_resp.append(_resp_entry)
+        ag_2_resp = np.array(ag_2_resp)
+        ag_2_resp_sorted = np.sort(ag_2_resp,axis=0,order='utils')[::-1]
+                       
+                     
+        f=1
+        
+    
+    
+        
+class SatisficingEquilibria(Equilibria):
+    
+    
     def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
         type(node).progress_ctr += 1
         #print('processing node level',node.level,'id:',node._ext_id)
@@ -401,4 +481,4 @@ class SatisficingEquilibria:
             
         return node.equilibrium_solutions
         
-        
+            

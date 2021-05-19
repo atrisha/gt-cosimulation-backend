@@ -10,6 +10,9 @@ import sqlite3
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import constants
+from maps.States import ScenarioDef
+from equilibrium.game_tree import Actions
 
 WAIT_ACTIONS = ['yield-to-merging','wait_for_lead_to_cross','wait-for-oncoming','decelerate-to-stop','wait-on-red','wait-for-pedestrian']
 
@@ -233,5 +236,25 @@ class TestVehicleTurn(unittest.TestCase):
                                    frames=len(sel_st_traj), interval=20, blit=True, repeat = False) 
         plt.show()
         
+
+class TestScenario(unittest.TestCase):
+    
+    def test_scenario(self):
+        
+        dataset_file_id = '769'
+        init_time = 0
+        scene_def = ScenarioDef(2,28,'769',initialize_db=True,start_ts=4.004)
+        maneuver_constraints = scene_def.setup_trajectory_constraints()
+        file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+        agent1_init_vel = maneuver_constraints['agent_1']['agent_state'].velocity
+        agent2_init_vel = maneuver_constraints['agent_2']['agent_state'].velocity
+        time_horizon = 6
+        acts = Actions(maneuver_constraints)
+        acts.generate_actions(init_time,agent1_init_vel,agent2_init_vel,time_horizon,True)
+        
+    
+    
+
+
 if __name__ == '__main__':
     unittest.main()

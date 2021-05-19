@@ -51,7 +51,16 @@ class ScenarioDef:
         q_string = "DELETE FROM TRAJ_INTERACTIONS"
         c.execute(q_string)
         conn.commit()
-        
+    
+    
+    
+    def _remove_duplicate(self,path):
+        dup_indxs = []
+        for dup in sorted(self.list_duplicates([x[0] for x in path])):
+            dup_indxs += dup[1][1:]
+        _newpath = [x for idx,x in enumerate(path) if idx not in dup_indxs]
+        return _newpath
+    
     
     ''' from https://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list'''
     def list_duplicates(self,seq):
@@ -61,12 +70,6 @@ class ScenarioDef:
         return ((key,locs) for key,locs in tally.items() 
                                 if len(locs)>1)
 
-    def _remove_duplicate(self,path):
-        dup_indxs = []
-        for dup in sorted(self.list_duplicates([x[0] for x in path])):
-            dup_indxs += dup[1][1:]
-        _newpath = [x for idx,x in enumerate(path) if idx not in dup_indxs]
-        return _newpath
         
     def __init__(self,agent_1_id, agent_2_id,file_id,initialize_db,start_ts):
         

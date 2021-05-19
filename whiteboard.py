@@ -12,6 +12,9 @@ from planners.trajectory_planner import TrajectoryPlanner, VehicleTrajectoryPlan
 from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints
 from equilibria import equilibria_core
 import time
+import constants
+from motion_planners.planning_objects import VehicleState
+import all_utils.utils
 
 def fun1():
     ''' prog, veh_inh, ped_inh'''
@@ -238,7 +241,105 @@ arr = np.rec.fromarrays((a,  b), names=('manv', 'utils'))
 arr_sorted = np.sort(arr,axis=0,order='utils')
 a_idxarr = arr.argsort(order='utils')
 '''
-arr = np.empty(shape= (2,2), dtype=object)
-arr[:,:] = 4
-arr[0,0] = None
-print(np.mean( np.array([ [5], [np.nan] ])))
+    
+SEGMENT_MAP = {
+               'prep-turn_s':'prep-left-turn',
+               'prep-turn_n':'prep-left-turn',
+               'prep-turn_e':'prep-left-turn',
+               'exec-turn_e':'exec-left-turn',
+               'exec-turn_n':'exec-left-turn',
+               'exec-turn_s':'exec-left-turn',
+               'prep-turn_w':'prep-left-turn',
+               'exec-turn_w':'exec-left-turn',
+               'rt_prep-turn_s':'prep-right-turn',
+               'rt_exec-turn_s':'exec-right-turn',
+               'rt_prep-turn_w':'prep-right-turn',
+               'rt_exec-turn_w':'exec-right-turn',
+               'ln_w_-2':'exit-lane',
+               'ln_w_-1':'exit-lane',
+               'ln_w_1':'left-turn-lane',
+               'ln_w_2':'through-lane-entry',
+               'ln_w_3':'through-lane-entry',
+               'ln_w_4':'right-turn-lane',
+               'ln_n_-2':'exit-lane',
+               'ln_n_-1':'exit-lane',
+               'ln_n_1':'left-turn-lane',
+               'ln_n_2':'through-lane-entry',
+               'ln_n_3':'through-lane-entry',
+               'ln_s_-2':'exit-lane',
+               'ln_s_-1':'exit-lane',
+               'ln_s_1':'left-turn-lane',
+               'ln_s_2':'through-lane-entry',
+               'ln_s_3':'through-lane-entry',
+               'ln_s_4':'right-turn-lane',
+               'ln_e_-2':'exit-lane',
+               'ln_e_-1':'exit-lane',
+               'ln_e_1':'left-turn-lane',
+               'ln_e_2':'through-lane-entry',
+               'ln_e_3':'through-lane-entry',
+               'l_n_s_l':'through-lane',
+               'l_n_s_r':'through-lane',
+               'l_s_n_l':'through-lane',
+               'l_s_n_r':'through-lane',
+               'l_e_w_l':'through-lane',
+               'l_e_w_r':'through-lane',
+               'l_w_e_l':'through-lane',
+               'l_w_e_r':'through-lane',
+               }
+
+def get_available_actions(vehicle):
+    segment = vehicle.current_segment
+    segment = constants.SEGMENT_MAP[segment]
+    conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
+    cur = conn.cursor()
+    command = f'SELECT L1_ACTION FROM ACTIONS WHERE SEGMENT="{segment}" AND (TRAFFIC_SIGNAL="{vehicle.signal}" OR TRAFFIC_SIGNAL="*")'
+    cur.execute(command)
+    query_results = cur.fetchall()
+    actions = [a[0] for a in query_results]
+    return actions    
+
+def generate_trajectories(vehicle):
+    # If vehicle id is not -1 then it is not an occluding vehicle and we
+    # can retrieve its trajectory from the database
+    constants.CURRENT_FILE_ID = '769'
+    
+    conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
+    c = conn.cursor()
+    q_string = f"select * from TRAJECTORIES_0{constants.CURRENT_FILE_ID} WHERE TRAJECTORIES_0{constants.CURRENT_FILE_ID}.TRACK_ID={vehicle.id} AND TIME>={vehicle.current_time} ORDER BY TIME"
+    c.execute(q_string)
+    res = c.fetchall()
+    path = [(x[1],x[2]) for idx,x in enumerate(res) if idx in [int(y) for y in np.linspace(start=0, stop=len(res)-1, num=10)]]
+    # THIS IS TO SOLVE THE PROBLEM OF INTERPOLATED RELEVANT VEHICLES
+    print(f"PATH[0] == {path[0]}; VEHICLE POS: {(vehicle.x, vehicle.y)}")
+    if path[0] != (vehicle.x, vehicle.y):
+        path.insert(0, (vehicle.x, vehicle.y))
+    maneuver = 'right-turn'
+    if maneuver == 'right-turn':
+        vel_pts = [(6,)] + [(None,) if i != len(np.arange(1,len(path)-1))//2 else (2,4) for i in np.arange(1,len(path)-1)] + [(5,8.3)]
+    elif maneuver == 'left-turn':
+        vel_pts = [(3,)] + [(None,) if i != len(np.arange(1,len(path)-1))//2 else (3,8) for i in np.arange(1,len(path)-1)] + [(8,11)]
+    else:
+        vel_pts = [(8,)] + [(None,)]*(len(path)-2) + [(8,14)]
+    trajectories = {}
+    actions = ['proceed-turn']
+    for action in actions:
+        if maneuver == 'right-turn' or maneuver == 'right-turn':
+            action_type = 'turn'
+        elif action in constants.WAIT_ACTIONS:
+                action_type = 'wait'
+        else:
+            action_type = 'track_speed'
+        if action_type == 'wait':
+            traj_constr = WaitTrajectoryConstraints(init_vel=8,waypoints=path,stop_horizon_dist_sampling_range=(20,30),stop_horizon_time_sampling_range=(4,8))
+        else:
+            traj_constr = ProceedTrajectoryConstraints(waypoints=path,waypoint_vel_sampling_range=vel_pts)
+        traj_constr.set_limit_constraints()
+        motion = VehicleTrajectoryPlanner(traj_constr,action_type,None,6)
+        motion.generate_trajectory(True)
+        trajectories[action] = motion.all_trajectories
+    return trajectories
+
+constants.CURRENT_FILE_ID = '769'
+vehicle = all_utils.utils.setup_vehicle_state(2, 4.004)
+trajs = generate_trajectories(vehicle)
+f=1

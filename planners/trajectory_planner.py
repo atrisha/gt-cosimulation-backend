@@ -17,13 +17,37 @@ import copy
 from scipy.optimize import minimize, Bounds
 import random
 import itertools
+from collections import defaultdict
+import warnings
+import constants
 
 
 class TrajectoryConstraints:
     
+    
+    ''' from https://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list'''
+    def list_duplicates(self,seq):
+        tally = defaultdict(list)
+        for i,item in enumerate(seq):
+            tally[item].append(i)
+        return ((key,locs) for key,locs in tally.items() 
+                                if len(locs)>1)
+
+     
+    
+    def _remove_duplicate(self,path):
+        dup_indxs = []
+        for dup in sorted(self.list_duplicates([x[0] for x in path])):
+            dup_indxs += dup[1][1:]
+        _newpath = [x for idx,x in enumerate(path) if idx not in dup_indxs]
+        return _newpath,dup_indxs
+    
+    
     def __init__(self, init_vel,waypoints):
-        self.waypoints = waypoints
+        unq_waypoints,dup_indxs = self._remove_duplicate(waypoints)
+        self.waypoints = unq_waypoints
         self.init_vel = init_vel
+        self.dup_indxs = dup_indxs
         
         
     def set_limit_constraints(self,max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=5,max_jerk_lims=2):
@@ -53,6 +77,7 @@ class ProceedTrajectoryConstraints(TrajectoryConstraints):
         assert len(waypoints) == len(waypoint_vel_sampling_range) , "Lengths should be same"
         init_vel = waypoint_vel_sampling_range[0][0]
         TrajectoryConstraints.__init__(self,init_vel, waypoints)
+        waypoint_vel_sampling_range = [x for idx,x in enumerate(waypoint_vel_sampling_range) if idx not in self.dup_indxs]
         self.waypoint_vel_sampling_range = waypoint_vel_sampling_range
         if len(waypoint_vel_sampling_range) > 2 and all_equal(waypoint_vel_sampling_range[1:-1]) and waypoint_vel_sampling_range[1] == (None,):
             self.waypoint_vel_sampling_range = waypoint_vel_sampling_range[0:1] + [(None,) if i != len(np.arange(1,len(waypoints)-1))//2 else (np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][0]]),np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][1]])) for i in np.arange(1,len(waypoints)-1)] + waypoint_vel_sampling_range[-1:]
@@ -217,7 +242,10 @@ class TrajectoryPlanner:
                 else:
                     nxt_valid_indx = next(i+idx for idx,item in enumerate(vp[i:]) if item is not None)
                     prev_valid_indx = next(i-idx for idx,item in enumerate(reversed(vp[:i+1])) if item is not None)
-                    prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
+                    try:
+                        prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
+                    except IndexError:
+                        f=1
                     try:
                         intpl_v = prev_valid_prop*vp[prev_valid_indx] + (1-prev_valid_prop)*vp[nxt_valid_indx]
                     except TypeError:
@@ -261,6 +289,14 @@ class TrajectoryPlanner:
             #self.cs_y = interp1d(indx,[x[1] for x in self.centerline])
             self.cs_y = UnivariateSpline(indx,[x[1] for x in self.centerline],k=1)
             yspl_order = 1
+        residuals = []
+        for _i,i in enumerate(indx):
+            _res = math.hypot(self.cs_x(i)-self.centerline[_i][0], self.cs_y(i)-self.centerline[_i][1])
+            residuals.append(_res)
+        _max_res = max(residuals)
+        if _max_res > constants.CAR_WIDTH/2:
+            warnings.warn(message = "Generated path "+str(_max_res)+"m away. Tolerance was set to "+str(constants.CAR_WIDTH/2)+"m", category = UserWarning)
+        
         self.path = [(x,self.cs_x(x),self.cs_y(x)) for x in indx]
         xdd = self.cs_x.derivative(2) if xspl_order == 2 else None
         ydd = self.cs_y.derivative(2) if yspl_order == 2 else None
