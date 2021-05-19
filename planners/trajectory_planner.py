@@ -79,9 +79,9 @@ class ProceedTrajectoryConstraints(TrajectoryConstraints):
         TrajectoryConstraints.__init__(self,init_vel, waypoints)
         waypoint_vel_sampling_range = [x for idx,x in enumerate(waypoint_vel_sampling_range) if idx not in self.dup_indxs]
         self.waypoint_vel_sampling_range = waypoint_vel_sampling_range
-        if len(waypoint_vel_sampling_range) > 2 and all_equal(waypoint_vel_sampling_range[1:-1]) and waypoint_vel_sampling_range[1] == (None,):
-            self.waypoint_vel_sampling_range = waypoint_vel_sampling_range[0:1] + [(None,) if i != len(np.arange(1,len(waypoints)-1))//2 else (np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][0]]),np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][1]])) for i in np.arange(1,len(waypoints)-1)] + waypoint_vel_sampling_range[-1:]
-        
+        #if len(waypoint_vel_sampling_range) > 2 and all_equal(waypoint_vel_sampling_range[1:-1]) and waypoint_vel_sampling_range[1] == (None,):
+        #    self.waypoint_vel_sampling_range = waypoint_vel_sampling_range[0:1] + [(None,) if i != len(np.arange(1,len(self.waypoints)-1))//2 else (np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][0]]),np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][1]])) for i in np.arange(1,len(self.waypoints)-1)] + waypoint_vel_sampling_range[-1:]
+        assert len(self.waypoints) == len(self.waypoint_vel_sampling_range) , "Lengths should be same, "+str(len(self.waypoints))+","+str(len(self.waypoint_vel_sampling_range))
 
 
 def find_maxima_minima(max,cs_v,thresh,guess=3):
@@ -211,8 +211,6 @@ class TrajectoryPlanner:
         self.centerline = traj_constr_obj.waypoints 
         self.maneuver = maneuver
         self.mode = mode
-        if maneuver not in WAIT_MANEUVERS:
-            self.build_velocity_lattice(traj_constr_obj.waypoint_vel_sampling_range)
         self.horizon = horizon
     
     def build_velocity_lattice(self,vel_pts_range):
@@ -233,6 +231,11 @@ class TrajectoryPlanner:
                     vtx = [None]
             v_ts.append(vtx)
         vel_profiles = list(itertools.product(*v_ts))
+        f_dx = self.cs_x.derivative(1)
+        f_dy = self.cs_y.derivative(1)
+        f = lambda x : math.hypot(f_dx(x),f_dy(x))
+        self.arcl = scipy.integrate.quad(f,0,1)[0]
+        s_pts = [self.arcl*x for x in self.indx]
         self.all_velocity_profiles = []
         for vp in vel_profiles:
             _v = []
@@ -242,15 +245,9 @@ class TrajectoryPlanner:
                 else:
                     nxt_valid_indx = next(i+idx for idx,item in enumerate(vp[i:]) if item is not None)
                     prev_valid_indx = next(i-idx for idx,item in enumerate(reversed(vp[:i+1])) if item is not None)
-                    try:
-                        prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
-                    except IndexError:
-                        f=1
-                    try:
-                        intpl_v = prev_valid_prop*vp[prev_valid_indx] + (1-prev_valid_prop)*vp[nxt_valid_indx]
-                    except TypeError:
-                        f=1
-                        raise
+                    #prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
+                    prev_valid_prop = (s_pts[nxt_valid_indx]-s_pts[prev_valid_indx])/s_pts[nxt_valid_indx]
+                    intpl_v = prev_valid_prop*vp[prev_valid_indx] + (1-prev_valid_prop)*vp[nxt_valid_indx]
                     _v.append(intpl_v)
             self.all_velocity_profiles.append(_v)
         
@@ -266,15 +263,7 @@ class TrajectoryPlanner:
         xspl_order,yspl_order = 2,2
         if self.print_console:
             print(indx)
-        if len(indx) > 3 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
-            try:
-                self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=3)
-            except ValueError:
-                print(indx,[x[0] for x in self.centerline])
-                #plt.plot(indx,[x[0] for x in self.centerline])
-                #plt.show()
-                raise
-        elif len(indx) > 2 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
+        if len(indx) > 2 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
             try:
                 self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=2)
             except ValueError:
@@ -287,14 +276,7 @@ class TrajectoryPlanner:
             self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=1)
             xspl_order = 1
         
-        if len(indx) > 3 and not (min([x[1] for x in self.centerline]) == max([x[1] for x in self.centerline])):
-            try:
-                _x = indx
-                _y = [x[1] for x in self.centerline]
-                self.cs_y = UnivariateSpline(_x,_y,k=3)
-            except:
-                raise
-        elif len(indx) > 2 and not (min([x[1] for x in self.centerline]) == max([x[1] for x in self.centerline])):
+        if len(indx) > 2 and not (min([x[1] for x in self.centerline]) == max([x[1] for x in self.centerline])):
             try:
                 _x = indx
                 _y = [x[1] for x in self.centerline]
@@ -338,6 +320,8 @@ class TrajectoryPlanner:
     def generate_trajectory(self,all=None):
         horizon = self.horizon
         self.generate_path()
+        if self.maneuver not in WAIT_MANEUVERS:
+            self.build_velocity_lattice(self.traj_constr_obj.waypoint_vel_sampling_range)
         if self.maneuver in ['turn','walk','track_speed']:
             self.generate_proceed_velocity_profiles()
         else:
