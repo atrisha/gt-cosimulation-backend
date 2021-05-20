@@ -20,6 +20,7 @@ import itertools
 from collections import defaultdict
 import warnings
 import constants
+import all_utils.utils
 
 
 class TrajectoryConstraints:
@@ -257,49 +258,73 @@ class TrajectoryPlanner:
         generate path with an index [0,1] that will 
         be later scaled to the arc length
         '''
-        seg_l = [0]+ [math.hypot(x[1][0]-x[0][0],x[1][1]-x[0][1]) for x in zip(self.centerline[1:],self.centerline[:-1])]
-        seg_l = [sum(seg_l[:i+1]) for i,x in enumerate(seg_l)]
-        indx = [seg_l[i]/seg_l[-1] for i in np.arange(len(self.centerline))]
-        xspl_order,yspl_order = 2,2
-        if self.print_console:
-            print(indx)
-        if len(indx) > 2 and not (min([x[0] for x in self.centerline]) == max([x[0] for x in self.centerline])):
-            try:
-                self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=2)
-            except ValueError:
-                print(indx,[x[0] for x in self.centerline])
-                #plt.plot(indx,[x[0] for x in self.centerline])
-                #plt.show()
-                raise
-        else:
-            #self.cs_x = interp1d(indx,[x[0] for x in self.centerline])
-            self.cs_x = UnivariateSpline(indx,[x[0] for x in self.centerline],k=1)
-            xspl_order = 1
-        
-        if len(indx) > 2 and not (min([x[1] for x in self.centerline]) == max([x[1] for x in self.centerline])):
-            try:
-                _x = indx
-                _y = [x[1] for x in self.centerline]
-                self.cs_y = UnivariateSpline(_x,_y,k=2)
-            except:
-                raise
-        else:
-            #self.cs_y = interp1d(indx,[x[1] for x in self.centerline])
-            self.cs_y = UnivariateSpline(indx,[x[1] for x in self.centerline],k=1)
-            yspl_order = 1
+        wp_l,wp_r = all_utils.utils.add_parallel(self.centerline, 1, 1)
+        all_waypoints = [self.centerline,wp_l,wp_r]
+        if len(self.centerline) > 4:
+            _midpt_idx = int(len(self.centerline)//2)
+            all_waypoints.append(self.centerline[:_midpt_idx]+wp_r[_midpt_idx:])
+            all_waypoints.append(self.centerline[:_midpt_idx]+wp_l[_midpt_idx:])
+            all_waypoints.append(wp_r[:_midpt_idx]+wp_l[_midpt_idx:])
+            all_waypoints.append(wp_l[:_midpt_idx]+wp_r[_midpt_idx:])
+        res_map = []    
+        for wp_idx,wp in enumerate(all_waypoints):
+            seg_l = [0]+ [math.hypot(x[1][0]-x[0][0],x[1][1]-x[0][1]) for x in zip(wp[1:],wp[:-1])]
+            seg_l = [sum(seg_l[:i+1]) for i,x in enumerate(seg_l)]
+            indx = [seg_l[i]/seg_l[-1] for i in np.arange(len(wp))]
+            xspl_order,yspl_order = 2,2
+            if self.print_console:
+                print(indx)
+            if len(indx) > 2 and not (min([x[0] for x in wp]) == max([x[0] for x in wp])):
+                try:
+                    self.cs_x = UnivariateSpline(indx,[x[0] for x in wp],k=2)
+                except ValueError:
+                    print(indx,[x[0] for x in wp])
+                    #plt.plot(indx,[x[0] for x in wp])
+                    #plt.show()
+                    raise
+            else:
+                #self.cs_x = interp1d(indx,[x[0] for x in wp])
+                self.cs_x = UnivariateSpline(indx,[x[0] for x in wp],k=1)
+                xspl_order = 1
+            
+            if len(indx) > 2 and not (min([x[1] for x in wp]) == max([x[1] for x in wp])):
+                try:
+                    _x = indx
+                    _y = [x[1] for x in wp]
+                    self.cs_y = UnivariateSpline(_x,_y,k=2)
+                except:
+                    raise
+            else:
+                #self.cs_y = interp1d(indx,[x[1] for x in wp])
+                self.cs_y = UnivariateSpline(indx,[x[1] for x in wp],k=1)
+                yspl_order = 1
+            err_x = self.cs_x(0) - self.centerline[0][0]
+            x_corrected = lambda x : self.cs_x(x) - err_x
+            err_y = self.cs_y(0) - self.centerline[0][1]
+            y_corrected = lambda x : self.cs_y(x) - err_y
+            '''
+            plt.plot([x_corrected(x) for x in np.linspace(indx[0],indx[-1],100)],[y_corrected(x) for x in np.linspace(indx[0],indx[-1],100)])
+            if wp_idx == 0:
+                plt.plot([x[0] for x in wp],[x[1] for x in wp],'kx')
+            else:
+                plt.plot([x[0] for x in wp],[x[1] for x in wp],'x')
+            '''            
+            residuals = []
+            for _i,i in enumerate(indx):
+                _res = math.hypot(x_corrected(i)-self.centerline[_i][0], y_corrected(i)-self.centerline[_i][1])
+                residuals.append(_res)
+            _max_res = max(residuals[:int(len(self.centerline)/2)])
+            res_map.append((_max_res,self.cs_x,self.cs_y))
+            
+        res_map.sort(key=lambda tup: tup[0])
+        self.cs_x, self.cs_y = res_map[0][1],res_map[0][2]
         err_x = self.cs_x(0) - self.centerline[0][0]
         x_corrected = lambda x : self.cs_x(x) - err_x
         err_y = self.cs_y(0) - self.centerline[0][1]
         y_corrected = lambda x : self.cs_y(x) - err_y
-                    
-        residuals = []
-        for _i,i in enumerate(indx):
-            _res = math.hypot(x_corrected(i)-self.centerline[_i][0], y_corrected(i)-self.centerline[_i][1])
-            residuals.append(_res)
-        _max_res = max(residuals)
-        if _max_res > constants.CAR_WIDTH/2:
-            warnings.warn(message = "Generated path "+str(_max_res)+"m away. Tolerance was set to "+str(constants.CAR_WIDTH/2)+"m", category = UserWarning)
-        
+        if res_map[0][0] > constants.CAR_WIDTH/2:
+            print(res_map[0][0])
+            warnings.warn(message = "Generated path "+str(res_map[0][0])+"m away. Tolerance was set to "+str(constants.CAR_WIDTH/2)+"m", category = UserWarning)
         self.path = [(x,self.cs_x(x),self.cs_y(x)) for x in indx]
         xdd = self.cs_x.derivative(2) if xspl_order == 2 else None
         ydd = self.cs_y.derivative(2) if yspl_order == 2 else None
