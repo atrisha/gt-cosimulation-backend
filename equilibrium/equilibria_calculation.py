@@ -55,7 +55,10 @@ class Equilibria:
             peds_actions = node.actions['agent_2']
             veh_actions = node.actions['agent_1']
             all_strategies = itertools.product(veh_actions,peds_actions)
-            self.calc_equilibria(veh_actions,peds_actions,node,last_decision_level)
+            if hasattr(self, 'calc_equilibria'):
+                self.calc_equilibria(veh_actions,peds_actions,node,last_decision_level)
+            else:
+                self.calc_response(veh_actions,peds_actions,node,last_decision_level)
         else:
             if not node.is_leaf: 
                 for c in node.children:
@@ -63,7 +66,10 @@ class Equilibria:
                 peds_actions = node.actions['agent_2']
                 veh_actions = node.actions['agent_1']
                 all_strategies = itertools.product(veh_actions,peds_actions)
-                self.calc_equilibria(veh_actions,peds_actions,node,last_decision_level)
+                if hasattr(self, 'calc_equilibria'):
+                    self.calc_equilibria(veh_actions,peds_actions,node,last_decision_level)
+                else:
+                    self.calc_response(veh_actions,peds_actions,node,last_decision_level)
                 
     def _max_util(self,x,ag_idx):
         if x is not None:
@@ -99,7 +105,8 @@ class Equilibria:
         veh_br_range = (veh_br_map[veh_br_key][0][i,j], veh_br_map[veh_br_key][1][i,j])
         peds_br_key = min(peds_br_map.keys(), key=lambda x:abs(x-veh_eq_act))
         ''' for agent_2, the indexes should be flipped since i is always agent_1, and agent_2 br matrix had i as agent_2 threshold'''
-        peds_br_range = (peds_br_map[peds_br_key][0][j,i], peds_br_map[peds_br_key][1][j,i])
+        ''' on second thought, they need not be flipped, because peds_br_map has the entries based on the gamma matrix[1]'''
+        peds_br_range = (peds_br_map[peds_br_key][0][i,j], peds_br_map[peds_br_key][1][i,j])
         return (veh_br_range,peds_br_range)
     
     def __init__(self,run_context = None):
@@ -109,16 +116,8 @@ class Equilibria:
             self.run_context = run_context
                 
 class AutoStrategyResponse(Equilibria):
-    def _ac_auto_util(self,ag_i_traj_frag, ag_minus_i_traj_frag, gamma, safe_util, prog_util):
-        exp_util = None
-        ag_minus_i_label = 'agent_1'
-        if ag_minus_i_traj_frag.manv == self.run_context[ag_minus_i_label]['wait']:
-            f=1 
-        
-    def is_likely(self,traj_frag_list,agent_label):
-        f=1
-           
-    def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+    
+    def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         self.gamma_matrix = gamma_matrix
         ''' agent_1=0 agent_2 = 1'''
@@ -159,7 +158,7 @@ class AutoStrategyResponse(Equilibria):
                 else:
                     f = np.vectorize(self._max_util)
                     cont_util = f(ag2_tf._next_node.equilibrium_solutions,1)
-                    cont_util = cont_util.T
+                    #cont_util = cont_util.T
                     #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
                 _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
                 if np.isnan(cont_util).any():
@@ -243,7 +242,25 @@ class AutoStrategyResponse(Equilibria):
             node.auto_strategy_response['agent_1'] = (ag1_upper_bound_matrix,ag1_lower_bound_matrix)
         
     
+class RobustResponse(Equilibria):
     
+    def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
+        ''' agent_1=0 agent_2 = 1'''
+        node.robust_response = {'agent_1' : np.empty(shape= (gamma_matrix[0].shape[0],1), dtype=object),
+                                'agent_2' : np.empty(shape= (gamma_matrix[1].shape[1],1), dtype=object)}
+        for i in np.arange(node.robust_response['agent_1'].shape[0]):
+            ''' agent_1 private tolerance type is i '''
+            all_eq = node.equilibrium_solutions[i,:]
+            ''' this is just a response, so te best response function can be None'''
+            soln = EquilibriaSolution(None,None)
+            min_util = min([eq.veh_eq_utils[0] for eq in all_eq])
+            min_idx = [eq.veh_eq_utils[0] for eq in all_eq].index(min_util)
+            ''' just take the first one because for automata strategy response, all columns are same '''
+            all_auto_resps = (node.auto_strategy_response['agent_1'][0][i,0], node.auto_strategy_response['agent_1'][1][i,0])
+            robust_resp_to_mspe = all_eq[i,min_idx]
+            f=1
+   
         
 class SatisficingEquilibria(Equilibria):
     
@@ -287,7 +304,7 @@ class SatisficingEquilibria(Equilibria):
                     else:
                         f = np.vectorize(self._max_util)
                         cont_util = f(peds_frag._next_node.equilibrium_solutions,1)
-                        cont_util = cont_util.T
+                        #cont_util = cont_util.T
                         #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
                     _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
                     _util_entry_matrix = np.where(np.isnan(cont_util), cont_util, np.mean(np.array([ cont_util, step_util ]), axis=0 ))
@@ -550,7 +567,7 @@ class SatisficingEquilibria(Equilibria):
                     node.equilibrium_solutions[i,j] = None
         
         auto_resp = AutoStrategyResponse(self.run_context) 
-        auto_resp.calc_equilibria(veh_acts, ped_acts, node, last_decision_level)        
+        auto_resp.calc_response(veh_acts, ped_acts, node, last_decision_level)        
                 
            
         return node.equilibrium_solutions

@@ -197,7 +197,7 @@ WAIT_MANEUVERS = ['wait']
 
 class TrajectoryPlanner:
     
-    show_plots = False
+    show_plots = True
     print_console = False
     
     
@@ -313,7 +313,8 @@ class TrajectoryPlanner:
             for _i,i in enumerate(indx):
                 _res = math.hypot(x_corrected(i)-self.centerline[_i][0], y_corrected(i)-self.centerline[_i][1])
                 residuals.append(_res)
-            _max_res = max(residuals[:int(len(self.centerline)/2)])
+            #_max_res = max(residuals[:int(len(self.centerline)/2)])
+            _max_res = max(residuals)
             res_map.append((_max_res,self.cs_x,self.cs_y))
             
         res_map.sort(key=lambda tup: tup[0])
@@ -322,8 +323,8 @@ class TrajectoryPlanner:
         x_corrected = lambda x : self.cs_x(x) - err_x
         err_y = self.cs_y(0) - self.centerline[0][1]
         y_corrected = lambda x : self.cs_y(x) - err_y
+        print(res_map[0][0])
         if res_map[0][0] > constants.CAR_WIDTH/2:
-            print(res_map[0][0])
             warnings.warn(message = "Generated path "+str(res_map[0][0])+"m away. Tolerance was set to "+str(constants.CAR_WIDTH/2)+"m", category = UserWarning)
         self.path = [(x,self.cs_x(x),self.cs_y(x)) for x in indx]
         xdd = self.cs_x.derivative(2) if xspl_order == 2 else None

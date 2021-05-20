@@ -12,7 +12,7 @@ from equilibrium.game_tree import GameTree
 from maps.States import ScenarioDef
 import constants
 import time
-from equilibrium.equilibria_calculation import SatisficingEquilibria, AutoStrategyResponse
+from equilibrium.equilibria_calculation import SatisficingEquilibria, AutoStrategyResponse, RobustResponse
 from equilibrium.range_estimation import MinDistanceGapModel
 from all_utils.utils import setup_pedestrian_info
 from equilibrium.game_tree import AssignDistRanges
@@ -73,7 +73,7 @@ class TestRobustEqSolving(unittest.TestCase):
         #rule_obj.resolve_rule(ag_obj, pedestrian_info)
         
         start_time = time.time()
-        #gt.solve(AutoStrategyResponse(context))
+        gt.solve(RobustResponse(context))
         print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
         f=1
         #print('predicting')
