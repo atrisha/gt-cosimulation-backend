@@ -197,7 +197,7 @@ WAIT_MANEUVERS = ['wait']
 
 class TrajectoryPlanner:
     
-    show_plots = True
+    show_plots = False
     print_console = False
     
     
