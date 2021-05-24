@@ -18,6 +18,27 @@ from shapely.geometry import multipoint, point, linestring, multilinestring, Geo
 from statistics import mean
 from collections import OrderedDict
 from code_utils.code_util_objects import RunContext
+#from figures import SIZE, set_limits, plot_coords, plot_bounds, plot_line_issimple
+
+COLOR = {
+    True:  '#6699cc',
+    False: '#ffcc33'
+    }
+
+def v_color(ob):
+    return COLOR[ob.is_simple]
+
+def plot_coords(ax, ob):
+    x, y = ob.xy
+    ax.plot(x, y, 'o', color='#999999', zorder=1)
+
+def plot_bounds(ax, ob):
+    x, y = zip(*list((p.x, p.y) for p in ob.boundary))
+    ax.plot(x, y, 'o', color='#000000', zorder=1)
+
+def plot_line(ax, ob):
+    x, y = ob.xy
+    ax.plot(x, y, color=v_color(ob), alpha=0.7, linewidth=3, solid_capstyle='round', zorder=2)
 
 
 show_plots = False
@@ -52,7 +73,11 @@ class Equilibria:
     '''
     def solve(self,node,last_decision_level):
         if node.level == last_decision_level:
-            peds_actions = node.actions['agent_2']
+            try:
+                peds_actions = node.actions['agent_2']
+            except TypeError:
+                f=1
+                raise
             veh_actions = node.actions['agent_1']
             all_strategies = itertools.product(veh_actions,peds_actions)
             if hasattr(self, 'calc_equilibria'):
@@ -119,6 +144,7 @@ class AutoStrategyResponse(Equilibria):
     
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
+        gamma_matrix.reverse()
         self.gamma_matrix = gamma_matrix
         ''' agent_1=0 agent_2 = 1'''
         #gamma_matrix = [np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20)]
@@ -156,13 +182,15 @@ class AutoStrategyResponse(Equilibria):
                 if node.level == last_decision_level:
                     cont_util = np.copy(step_util)
                 else:
-                    f = np.vectorize(self._max_util)
-                    cont_util = f(ag2_tf._next_node.equilibrium_solutions,1)
+                    if len(ag2_tf._next_node.children) == 0:
+                        continue
+                    else:
+                        cont_util = ag2_tf._next_node.auto_strategy_response['agent_2'][0]['utils']
                     #cont_util = cont_util.T
                     #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
                 _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
-                if np.isnan(cont_util).any():
-                    continue
+                #if np.isnan(cont_util).any():
+                #    continue
                 _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
                 manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
                 traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
@@ -213,12 +241,13 @@ class AutoStrategyResponse(Equilibria):
                 if node.level == last_decision_level:
                     cont_util = np.copy(step_util)
                 else:
-                    f = np.vectorize(self._max_util)
-                    cont_util = f(ag1_tf._next_node.equilibrium_solutions,0)
-                    #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
+                    if len(ag1_tf._next_node.children) == 0:
+                        continue
+                    else:
+                        cont_util = ag1_tf._next_node.auto_strategy_response['agent_1'][0]['utils']
                 _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=np.record)
-                if np.isnan(cont_util).any():
-                    continue
+                #if np.isnan(cont_util).any():
+                #    continue
                 _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
                 manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=ag1_tf.manv)
                 traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = ag1_tf.length)
@@ -245,21 +274,69 @@ class AutoStrategyResponse(Equilibria):
 class RobustResponse(Equilibria):
     
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        if len(node.children) > 9:
+            f=1
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
+        gamma_matrix.reverse()
         ''' agent_1=0 agent_2 = 1'''
         node.robust_response = {'agent_1' : np.empty(shape= (gamma_matrix[0].shape[0],1), dtype=object),
                                 'agent_2' : np.empty(shape= (gamma_matrix[1].shape[1],1), dtype=object)}
         for i in np.arange(node.robust_response['agent_1'].shape[0]):
             ''' agent_1 private tolerance type is i '''
-            all_eq = node.equilibrium_solutions[i,:]
+            all_eq_list = node.equilibrium_solutions[i,:]
             ''' this is just a response, so te best response function can be None'''
+            
+            min_util,min_idx = np.inf,(0,0)
+            for bl_idx,all_eq in enumerate(all_eq_list):
+                if all_eq is not None:
+                    for idx,eq in enumerate(all_eq):
+                        if eq.veh_eq_utils[0] < min_util:
+                            min_util = eq.veh_eq_utils[0]
+                            min_idx = (bl_idx,idx)
+            
             soln = EquilibriaSolution(None,None)
-            min_util = min([eq.veh_eq_utils[0] for eq in all_eq])
-            min_idx = [eq.veh_eq_utils[0] for eq in all_eq].index(min_util)
             ''' just take the first one because for automata strategy response, all columns are same '''
-            all_auto_resps = (node.auto_strategy_response['agent_1'][0][i,0], node.auto_strategy_response['agent_1'][1][i,0])
-            robust_resp_to_mspe = all_eq[i,min_idx]
-            f=1
+            if node.auto_strategy_response is not None and len(node.auto_strategy_response)>1:
+                all_auto_resps = (node.auto_strategy_response['agent_1'][0][i,0], node.auto_strategy_response['agent_1'][1][i,0])
+                soln.veh_eq_acts = (all_auto_resps[0]['traj_l'],all_auto_resps[1]['traj_l'])
+                soln.veh_eq_utils = (all_auto_resps[0]['utils'],all_auto_resps[1]['utils'])
+                robust_resp_to_mspe = all_eq_list[min_idx[0]][min_idx[1]]
+                node.robust_response['agent_1'][i] = soln if soln.veh_eq_utils[0] < robust_resp_to_mspe.veh_eq_utils[0] else robust_resp_to_mspe
+            else:
+                if all_eq_list[min_idx[0]] is not None:
+                    robust_resp_to_mspe = all_eq_list[min_idx[0]][min_idx[1]]
+                    node.robust_response['agent_1'][i] = robust_resp_to_mspe
+                else:
+                    node.robust_response['agent_1'][i] = None 
+            
+        for j in np.arange(node.robust_response['agent_2'].shape[0]):
+            ''' agent_2 private tolerance type is j '''
+            all_eq_list = node.equilibrium_solutions[:,j]
+            ''' this is just a response, so te best response function can be None'''
+            
+            min_util,min_idx = np.inf,(0,0)
+            for bl_idx,all_eq in enumerate(all_eq_list):
+                if all_eq is not None:
+                    for idx,eq in enumerate(all_eq):
+                        if eq.peds_eq_utils[0] < min_util:
+                            min_util = eq.peds_eq_utils[0]
+                            min_idx = (bl_idx,idx)
+            
+            soln = EquilibriaSolution(None,None)
+            if node.auto_strategy_response is not None and len(node.auto_strategy_response)>1:
+                ''' just take the first one because for automata strategy response, all columns are same '''
+                all_auto_resps = (node.auto_strategy_response['agent_2'][0][0,j], node.auto_strategy_response['agent_2'][1][0,j])
+                soln.peds_eq_acts = (all_auto_resps[0]['traj_l'],all_auto_resps[1]['traj_l'])
+                soln.peds_eq_utils = (all_auto_resps[0]['utils'],all_auto_resps[1]['utils'])
+                robust_resp_to_mspe = all_eq_list[min_idx[0]][min_idx[1]]
+                node.robust_response['agent_2'][j] = soln if soln.peds_eq_utils[0] < robust_resp_to_mspe.peds_eq_utils[0] else robust_resp_to_mspe
+            else:
+                if all_eq_list[min_idx[0]] is not None:
+                    robust_resp_to_mspe = all_eq_list[min_idx[0]][min_idx[1]]
+                    node.robust_response['agent_2'][j] = robust_resp_to_mspe
+                else:
+                    node.robust_response['agent_2'][j] = None
+        
    
         
 class SatisficingEquilibria(Equilibria):
@@ -270,6 +347,7 @@ class SatisficingEquilibria(Equilibria):
         #print('processing node level',node.level,'id:',node._ext_id)
         print('solving node',type(node).progress_ctr,'/',type(node).tree_size)
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
+        gamma_matrix.reverse()
         ''' agent_1=0 agent_2 = 1'''
         #gamma_matrix = [np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20)]
         node.equilibrium_solutions = np.empty(shape= (gamma_matrix[0].shape[0],gamma_matrix[1].shape[0]), dtype=object)
@@ -308,8 +386,8 @@ class SatisficingEquilibria(Equilibria):
                         #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
                     _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
                     _util_entry_matrix = np.where(np.isnan(cont_util), cont_util, np.mean(np.array([ cont_util, step_util ]), axis=0 ))
-                    #if np.isnan(cont_util).all():
-                    #    continue
+                    if np.isnan(cont_util).all():
+                        continue
                     #_util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
                     manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=manv)
                     traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ped_traj_l)
@@ -353,24 +431,24 @@ class SatisficingEquilibria(Equilibria):
             return None
         '''
         ''' agent_2 best response function'''
-        p1_matrix = np.empty(shape= gamma_matrix[1].shape[0], dtype=object)
-        for i in np.arange(p1_matrix.shape[0]):
-            if np.nan in [x[0][i,0]['utils'] for x in peds_best_response.values()] or len(peds_best_response.values()) == 0:
-                p1_matrix[i] = None
+        p2_matrix = np.empty(shape= gamma_matrix[1].shape[0], dtype=object)
+        for i in np.arange(p2_matrix.shape[0]):
+            if np.nan in [x[0][0,i]['utils'] for x in peds_best_response.values()] or len(peds_best_response.values()) == 0:
+                p2_matrix[i] = None
             elif len(peds_best_response.values()) == 1:
-                p1 = (point.Point(list(zip([x[0][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))) , point.Point(list(zip([x[1][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))))
-                p1_matrix[i] = p1
+                p2 = (point.Point(list(zip([x[0][0,i]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))) , point.Point(list(zip([x[1][0,i]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))))
+                p2_matrix[i] = p2
             else:
-                p1 = (LineString(list(zip([x[0][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))) , LineString(list(zip([x[1][i,0]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))))
-                p1_matrix[i] = p1  
+                p2 = (LineString(list(zip([x[0][0,i]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))) , LineString(list(zip([x[1][0,i]['traj_l'] for x in peds_best_response.values()],[x for x in peds_best_response.keys()]))))
+                p2_matrix[i] = p2  
             
                 
-        
+        '''
         if show_plots:
             plt.figure()
             plt.plot([x for x in peds_best_response.keys()],[x[0][0]['traj_l'] for x in peds_best_response.values()],c='red')
             plt.plot([x for x in peds_best_response.keys()],[x[1][0]['traj_l'] for x in peds_best_response.values()],c=lighten_color('red', .5),label = 'agent_2 best response')
-        
+        '''
                 
                 
         
@@ -407,6 +485,9 @@ class SatisficingEquilibria(Equilibria):
                         #cont_util = max([max(x.veh_eq_utils) for x in veh_frag._next_node.equilibrium_solutions])
                     _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=object)
                     _util_entry_matrix = np.where(np.isnan(cont_util), cont_util, np.mean(np.array([ cont_util, step_util ]), axis=0 ))
+                    if np.isnan(cont_util).all():
+                        continue
+                    
                     #_util_entry_matrix = np.mean( np.array([ cont_util, step_util ]), axis = 0)
                     manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=manv)
                     traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = veh_traj_l)
@@ -439,56 +520,59 @@ class SatisficingEquilibria(Equilibria):
             return None
         '''
         ''' agent_1 best response function'''
-        p2_matrix = np.empty(shape= gamma_matrix[0].shape[0], dtype=object)
-        for i in np.arange(p2_matrix.shape[0]):
+        p1_matrix = np.empty(shape= gamma_matrix[0].shape[0], dtype=object)
+        for i in np.arange(p1_matrix.shape[0]):
             if np.nan in [x[0][i,0]['utils'] for x in veh_best_response.values()] or len(veh_best_response.values()) == 0:
-                p2_matrix[i] = None
+                p1_matrix[i] = None
             elif len(veh_best_response.values()) == 1:
-                p2 = (point.Point(list(zip([x for x in veh_best_response.keys()],[x[0][i,0]['traj_l'] for x in veh_best_response.values()]))) , point.Point(list(zip([x for x in veh_best_response.keys()],[x[1][i,0]['traj_l'] for x in veh_best_response.values()])))) 
-                p2_matrix[i] = p2
+                p1 = (point.Point(list(zip([x for x in veh_best_response.keys()],[x[0][i,0]['traj_l'] for x in veh_best_response.values()]))) , point.Point(list(zip([x for x in veh_best_response.keys()],[x[1][i,0]['traj_l'] for x in veh_best_response.values()])))) 
+                p1_matrix[i] = p1
             else:
-                p2 = (LineString(list(zip([x for x in veh_best_response.keys()],[x[0][i,0]['traj_l'] for x in veh_best_response.values()]))) , LineString(list(zip([x for x in veh_best_response.keys()],[x[1][i,0]['traj_l'] for x in veh_best_response.values()]))))
-                p2_matrix[i] = p2  
-        
+                p1 = (LineString(list(zip([x for x in veh_best_response.keys()],[x[0][i,0]['traj_l'] for x in veh_best_response.values()]))) , LineString(list(zip([x for x in veh_best_response.keys()],[x[1][i,0]['traj_l'] for x in veh_best_response.values()]))))
+                p1_matrix[i] = p1  
+        '''
         if show_plots:
             plt.plot([x[0][0]['traj_l'] for x in veh_best_response.values()],[x for x in veh_best_response.keys()],c='blue')
             plt.plot([x[1][0]['traj_l'] for x in veh_best_response.values()],[x for x in veh_best_response.keys()],c=lighten_color('blue', .5),label = 'agent_1 best response')
-        
+        '''
+        if len(node.children) > 9:
+            if show_plots:
+                fig, axs = plt.subplots(5, 5)
         
         
         self.veh_best_response = veh_best_response
         self.peds_best_response= peds_best_response
         
         '''
-        p1:
+        p2:
             x : agent_1's trajectory length choice
             y : agent_2 best response
             
-        p2:
+        p1:
             x : agent_1 best reponse 
             y : agent_2's trajectory length choice
         
         p[0]: upper bound
         p[1]: lower bound
         '''
-        for i in np.arange(p2_matrix.shape[0]):
-            for j in np.arange(p1_matrix.shape[0]):
-                p1,p2 = p1_matrix[j], p2_matrix[i]
-                if p1 is None or p2 is None:
+        for i in np.arange(p1_matrix.shape[0]):
+            for j in np.arange(p2_matrix.shape[0]):
+                p2,p1 = p2_matrix[j], p1_matrix[i]
+                if p2 is None or p1 is None:
                     node.equilibrium_solutions[i,j] = None
                     continue
                 eq_strat = None
                 eq_obj = None
                 ''' find the equilibrium with respect to upper bounds 
                     and expand the points based on best response curves '''
-                if p1[0].intersects(p2[0]):
-                    eq_obj = p1[0].intersection(p2[0])
-                elif len(p2) > 1 and p1[0].intersects(p2[1]):
-                    eq_obj = p1[0].intersection(p2[1])
-                elif len(p1) > 1 and p1[1].intersects(p2[0]):
-                    eq_obj = p1[1].intersection(p2[0])
-                elif len(p1) > 1 and len(p2) > 1 and p1[1].intersects(p2[1]):
-                    eq_obj = p1[1].intersection(p2[1])
+                if p2[0].intersects(p1[0]):
+                    eq_obj = p2[0].intersection(p1[0])
+                elif len(p1) > 1 and p2[0].intersects(p1[1]):
+                    eq_obj = p2[0].intersection(p1[1])
+                elif len(p2) > 1 and p2[1].intersects(p1[0]):
+                    eq_obj = p2[1].intersection(p1[0])
+                elif len(p2) > 1 and len(p1) > 1 and p2[1].intersects(p1[1]):
+                    eq_obj = p2[1].intersection(p1[1])
                 else:
                     pass
                     #print('Equilibrium doesn\'t exists',gamma_matrix[0][i],gamma_matrix[1][j])
@@ -502,10 +586,10 @@ class SatisficingEquilibria(Equilibria):
                     elif isinstance(eq_obj, linestring.LineString):
                         eq_strat = self._process_LineString(eq_obj,(i,j))
                         
-                    elif isinstance(eq_obj, multilinestring.MultiLineString,(i,j)):
+                    elif isinstance(eq_obj, multilinestring.MultiLineString):
                         eq_strat = []
                         for eq_item in eq_obj:
-                            eq_strat += self._process_LineString(eq_item)
+                            eq_strat += self._process_LineString(eq_item,(i,j))
                         
                     elif isinstance(eq_obj, GeometryCollection):
                         eq_strat = []
@@ -521,21 +605,65 @@ class SatisficingEquilibria(Equilibria):
                         #print(node.level,'equilibrium',eq_strat)
                     else:
                         raise Exception('cannot process equilibrium of class '+type(eq_obj).__name__)
-                #eq_reg = p1.intersection(p2)
+                #eq_reg = p2.intersection(p1)
                 #print(eq_reg)
-                '''
-                fig = plt.figure()
-                ax = fig.add_subplot(121)
-                
-                for ob in eq_reg:
-                    x, y = ob.xy
-                    if len(x) == 1:
-                        ax.plot(x, y, 'o', color='BLUE', zorder=2)
-                    else:
-                        ax.plot(x, y, color='BLUE', alpha=0.7, linewidth=3, solid_capstyle='round', zorder=2)
-                '''
-                if show_plots:
-                    plt.show()
+                if len(node.children) > 9:
+                    if show_plots:
+                        minx,maxx,miny,maxy = np.inf,-np.inf,np.inf,-np.inf
+                        x, y = p2[0].xy
+                        if min(x) < minx:
+                            minx = min(x)
+                        if max(x) > maxx:
+                            maxx = max(x)
+                        if min(y) < miny:
+                            miny = min(y)
+                        if max(y) > maxy:
+                            maxy = max(y)
+                        axs[i,j].plot(x, y, color='red')
+                        x, y = p2[1].xy
+                        if min(x) < minx:
+                            minx = min(x)
+                        if max(x) > maxx:
+                            maxx = max(x)
+                        if min(y) < miny:
+                            miny = min(y)
+                        if max(y) > maxy:
+                            maxy = max(y)
+                        
+                        axs[i,j].plot(x, y, color=lighten_color('red', 0.5))
+                        x, y = p1[0].xy
+                        if min(x) < minx:
+                            minx = min(x)
+                        if max(x) > maxx:
+                            maxx = max(x)
+                        if min(y) < miny:
+                            miny = min(y)
+                        if max(y) > maxy:
+                            maxy = max(y)
+                        
+                        axs[i,j].plot(x, y, color='blue')
+                        x, y = p1[1].xy
+                        if min(x) < minx:
+                            minx = min(x)
+                        if max(x) > maxx:
+                            maxx = max(x)
+                        if min(y) < miny:
+                            miny = min(y)
+                        if max(y) > maxy:
+                            maxy = max(y)
+                        
+                        axs[i,j].plot(x, y, color=lighten_color('blue', 0.5))
+                        axs[i,j].set_xlim(minx-1,maxx+1)
+                        axs[i,j].set_ylim(miny-1,maxy+1)
+                        '''
+                        eq_reg = eq_obj
+                        for ob in eq_reg:
+                            x, y = ob.xy
+                            if len(x) == 1:
+                                ax.plot(x, y, 'o', color='BLUE', zorder=2)
+                            else:
+                                ax.plot(x, y, color='green', alpha=0.7, linewidth=3, solid_capstyle='round', zorder=2)
+                        '''
                 if eq_strat is not None:
                     eq_solns = []
                     for eq_item in eq_strat:
@@ -565,11 +693,15 @@ class SatisficingEquilibria(Equilibria):
                     #print(node.level,'equilibrium',[x.veh_eq_acts for x in eq_solns], [x.peds_eq_acts for x in eq_solns])
                 else:
                     node.equilibrium_solutions[i,j] = None
-        
-        auto_resp = AutoStrategyResponse(self.run_context) 
-        auto_resp.calc_response(veh_acts, ped_acts, node, last_decision_level)        
+        if len(node.children) > 9: 
+            if show_plots:
+                plt.show()
+        if len(node.children) > 9:
+            f=1
                 
-           
+        auto_resp = AutoStrategyResponse(self.run_context) 
+        auto_resp.calc_response(veh_acts, ped_acts, node, last_decision_level)       
+          
         return node.equilibrium_solutions
         
             

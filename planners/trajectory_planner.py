@@ -247,7 +247,7 @@ class TrajectoryPlanner:
                     nxt_valid_indx = next(i+idx for idx,item in enumerate(vp[i:]) if item is not None)
                     prev_valid_indx = next(i-idx for idx,item in enumerate(reversed(vp[:i+1])) if item is not None)
                     #prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
-                    prev_valid_prop = (s_pts[nxt_valid_indx]-s_pts[prev_valid_indx])/s_pts[nxt_valid_indx]
+                    prev_valid_prop = (s_pts[i]-s_pts[prev_valid_indx])/(s_pts[nxt_valid_indx]-s_pts[prev_valid_indx])
                     intpl_v = prev_valid_prop*vp[prev_valid_indx] + (1-prev_valid_prop)*vp[nxt_valid_indx]
                     _v.append(intpl_v)
             self.all_velocity_profiles.append(_v)
@@ -323,9 +323,9 @@ class TrajectoryPlanner:
         x_corrected = lambda x : self.cs_x(x) - err_x
         err_y = self.cs_y(0) - self.centerline[0][1]
         y_corrected = lambda x : self.cs_y(x) - err_y
-        print(res_map[0][0])
-        if res_map[0][0] > constants.CAR_WIDTH/2:
-            warnings.warn(message = "Generated path "+str(res_map[0][0])+"m away. Tolerance was set to "+str(constants.CAR_WIDTH/2)+"m", category = UserWarning)
+        #print(res_map[0][0])
+        #if res_map[0][0] > constants.CAR_WIDTH/2:
+        #    warnings.warn(message = "Generated path "+str(res_map[0][0])+"m away. Tolerance was set to "+str(constants.CAR_WIDTH/2)+"m", category = UserWarning)
         self.path = [(x,self.cs_x(x),self.cs_y(x)) for x in indx]
         xdd = self.cs_x.derivative(2) if xspl_order == 2 else None
         ydd = self.cs_y.derivative(2) if yspl_order == 2 else None
@@ -538,9 +538,10 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                     _v =  self.cs_v_s(s_pts[xidx])
                     _S = s_pts[xidx]-s_pts[xidx-1]
                     t = 2*_S/(_u+_v)
-                    time_pts.append(t+time_pts[-1])
-                    if t <= time_pts[-1]:
+                    if t+time_pts[-1] <= time_pts[-1]:
                         brk=1
+                    time_pts.append(t+time_pts[-1])
+                    
             self.cs_t_s = CubicSpline(time_pts,s_pts)
             
             if time_pts[-1] > 8:

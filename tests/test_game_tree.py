@@ -8,7 +8,7 @@ import unittest
 import sqlite3
 import numpy as np
 import matplotlib.pyplot as plt
-from equilibrium.game_tree import GameTree
+from equilibrium.game_tree import GameTree, TreeBuilder
 from maps.States import ScenarioDef
 import constants
 import time
@@ -49,9 +49,14 @@ class TestManvSatisfPESolving(unittest.TestCase):
 class TestRobustEqSolving(unittest.TestCase):
     
     def test_perfect_satisficing_equil(self):
-        context = RunContext()
-        scene_def = ScenarioDef(8,28,'769',initialize_db=False,start_ts=7.374033)
+        initialize_db = False
+        scene_def = ScenarioDef(8,23,'769',initialize_db=initialize_db,start_ts=3.338667)
         maneuver_constraints = scene_def.setup_trajectory_constraints()
+        if initialize_db:
+            tree_builder = TreeBuilder()
+            tree_builder.build_complete_tree(maneuver_constraints)
+        
+        
         file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
         gt = GameTree(file_id)
         gt.build_tree()
@@ -75,6 +80,7 @@ class TestRobustEqSolving(unittest.TestCase):
         start_time = time.time()
         gt.solve(RobustResponse(context))
         print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+        #gt.print_tree()
         f=1
         #print('predicting')
         #predicted_range = m.distgap_model_agent_1.predict([3])

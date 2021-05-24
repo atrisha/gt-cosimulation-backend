@@ -10,7 +10,7 @@ import sqlite3
 import itertools
 from planners.planning_objects import VehicleState, PedestrianState
 import time
-from equilibrium.equilibria_calculation import SatisficingEquilibria
+from equilibrium.equilibria_calculation import SatisficingEquilibria, RobustResponse
 import copy
 from maps.map_info import NYCMapInfo
 from mpl_toolkits.mplot3d import Axes3D
@@ -28,11 +28,19 @@ import traceback
 import sys
 from equilibrium.range_estimation import MinDistanceGapModel
 from equilibrium.gametree_objects import TrajectoryCache, TrajectoryFragment
+from code_utils.code_util_objects import RunContext
+import all_utils
 
 log = constants.common_logger
 from equilibrium.automata_strategies import *
 
 show_plots = False
+
+class UnsupportedLatticeException(Exception):
+    def __init__(self,l2_size,l4_size,l6_size):
+        message = 'l2:'+str(l2_size)+', l4:'+str(l4_size)+', l6:'+str(l6_size)            
+        super().__init__(message)
+        
 
 '''
 act_dict = {'pedestrian':{
@@ -351,8 +359,8 @@ class TreeBuilder:
             for ag in ['agent_1','agent_2']:
                 tot_states = 0
                 state_lattice[t[0]+t[1]][ag] = dict()
-                lattice_dist_step = 1 if ag == 'agent_1' else 2
-                lattice_vel_step = 0.3 if ag == 'agent_1' else 1
+                lattice_dist_step = 0.5 if ag == 'agent_1' else 5
+                
                 print("--",ag,'init states (s,x,y)',"--")
                 for manv in maneuver_constraints[ag]['maneuvers'].keys():
                     q_string = "SELECT MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X),ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.TRAJ_ID FROM TRAJECTORY_METADATA \
@@ -460,6 +468,38 @@ class Node:
     
     progress_ctr = 0
     tree_size = 0
+    
+    def print_Node(self,last_decision_level):
+        if self.level == last_decision_level:
+            if all(x==[x.manv for x in self.actions['agent_1']][0] for x in [x.manv for x in self.actions['agent_1']]):
+                ag1_alleq = True
+            else:
+                ag1_alleq = False
+            if all(x==[x.manv for x in self.actions['agent_2']][0] for x in [x.manv for x in self.actions['agent_2']]):
+                ag2_alleq = True
+            else:
+                ag2_alleq = False
+            try:
+                print(self._ext_id,ag1_alleq,ag2_alleq,self.level, self.auto_strategy_response['agent_1'][0][2,2]['traj_l'] if 'agent_1' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].veh_eq_acts[0] if self.equilibrium_solutions[2,2] is not None else 'None', self.robust_response['agent_1'][2][0].veh_eq_acts[0] if self.robust_response is not None and 'agent_1' in self.robust_response else 'None',
+                  self.auto_strategy_response['agent_2'][0][2,2]['traj_l'] if 'agent_2' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].peds_eq_acts[0] if self.equilibrium_solutions[2,2] is not None else 'None', self.robust_response['agent_2'][2][0].peds_eq_acts[0] if self.robust_response is not None and 'agent_2' in self.robust_response else 'None')
+            except AttributeError:
+                f=1
+                raise
+        else:
+            if not self.is_leaf: 
+                for c in self.children:
+                    c.print_Node(last_decision_level)
+                if all(x==[x.manv for x in self.actions['agent_1']][0] for x in [x.manv for x in self.actions['agent_1']]):
+                    ag1_alleq = True
+                else:
+                    ag1_alleq = False
+                if all(x==[x.manv for x in self.actions['agent_2']][0] for x in [x.manv for x in self.actions['agent_2']]):
+                    ag2_alleq = True
+                else:
+                    ag2_alleq = False
+            
+                print(self._ext_id,ag1_alleq,ag2_alleq,self.level, self.auto_strategy_response['agent_1'][0][2,2]['traj_l'] if 'agent_1' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].veh_eq_acts[0] if self.equilibrium_solutions[2,2] is not None and self.equilibrium_solutions[2,2][0] is not None else 'None', self.robust_response['agent_1'][2][0].veh_eq_acts[0] if self.robust_response is not None and 'agent_1' in self.robust_response else 'None',
+                  self.auto_strategy_response['agent_2'][0][2,2]['traj_l'] if 'agent_2' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].peds_eq_acts[0] if self.equilibrium_solutions[2,2] is not None else 'None', self.robust_response['agent_2'][2][0].peds_eq_acts[0] if self.robust_response is not None and 'agent_2' in self.robust_response else 'None')
     
     def __init__(self,level, path_from_root,_ext_id):
         self.level = level
@@ -604,6 +644,10 @@ class GameTree:
         v_tcache_4_6, p_tcache_4_6 = dict(), dict()
         v_tcache_4_6[(4,4,6)] = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='agent_1',file_id=self.file_id)
         p_tcache_4_6[(4,4,6)] = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='agent_2',file_id=self.file_id)
+        v_tcache_4_6[(2,4,6)] = TrajectoryCache(init_time=2,time_range=(4,6),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(2,4,6)] = TrajectoryCache(init_time=2,time_range=(4,6),ag_type='agent_2',file_id=self.file_id)
+        v_tcache_4_6[(0,4,6)] = TrajectoryCache(init_time=0,time_range=(4,6),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(0,4,6)] = TrajectoryCache(init_time=0,time_range=(4,6),ag_type='agent_2',file_id=self.file_id)
         _ext_id = GameTree.counter
         self.root = Node(0,None,_ext_id)
         GameTree.counter += 1
@@ -632,6 +676,8 @@ class GameTree:
                     if len(level_nodes_4s[n4s].children) == 0:
                         level_nodes_4s[n4s].children = None
             n.children = n_children
+            
+                
         self.root.children = list(level_nodes_2s.values())
         
         
@@ -642,6 +688,11 @@ class GameTree:
         level_nodes_2s = self.build_level_nodes(2)
         level_nodes_4s = self.build_level_nodes(4)
         level_nodes_6s = self.build_level_nodes(6)
+        if len(level_nodes_2s) == 0 or len(level_nodes_4s) == 0 or len(level_nodes_6s['agent_1'])==0 or len(level_nodes_6s['agent_2'])==0:
+            raise UnsupportedLatticeException(l2_size=len(level_nodes_2s), l4_size=len(level_nodes_4s), l6_size=(len(level_nodes_6s['agent_1']),len(level_nodes_6s['agent_2'])))
+        self.last_decision_level = 4
+        self._process_three_change_tree(level_nodes_2s, level_nodes_4s, level_nodes_6s)
+        '''
         if len(level_nodes_2s) == 0 and len(level_nodes_4s) != 0:
             self.last_decision_level = 4
             self._process_two_change_tree(level_nodes_4s, 4, level_nodes_6s)
@@ -653,6 +704,7 @@ class GameTree:
             self._process_three_change_tree(level_nodes_2s, level_nodes_4s, level_nodes_6s)
         else:
             self.last_decision_level = 0
+        '''
         print('N (2s):',len(level_nodes_2s), 'N (4s):',len(level_nodes_4s), 'N (6s):',len(level_nodes_6s['agent_1'])*len(level_nodes_6s['agent_2']))
         Node.tree_size = len(level_nodes_2s) * len(level_nodes_4s)
         print('building lattice nodes....DONE','(%s secs)' % (time.time() - start_time),)
@@ -668,9 +720,10 @@ class GameTree:
             
     
     def solve(self,eq_class):
-        
         eq_class.solve(node = self.root,last_decision_level=self.last_decision_level)
-        
+    
+    def print_tree(self):
+        self.root.print_Node(self.last_decision_level)
     
     def build_level_nodes(self, level):
         conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
@@ -712,6 +765,7 @@ class GameTree:
                         latc_tracker_veh[parent_traj_id].append(math.sqrt(veh_row[3]))
                 else:
                     veh_lattice_states[parent_traj_id].append(tuple([x if _i !=3 else math.sqrt(x) for _i,x in enumerate(veh_row)]))
+                    
             for idx2,peds_row in enumerate(peds_res):
                 parent_traj_id = peds_row[-1] if peds_row[-1] is not None else peds_row[-2]
                 if parent_traj_id not in peds_lattice_states:
@@ -744,6 +798,7 @@ class GameTree:
                 q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 and TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_1'+"'"
                 c.execute(q_string)
                 res = c.fetchall()
+                veh_res = veh_res + res
                 for row in res:
                     veh_traj_info[row[0]] = (row[6],row[7],row[9])
             
@@ -758,6 +813,7 @@ class GameTree:
                 q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 and TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_2'+"'"
                 c.execute(q_string)
                 res = c.fetchall()
+                peds_res = peds_res + res
                 for row in res:
                     peds_traj_info[row[0]] = (row[6],row[7],row[9])
             
@@ -806,14 +862,15 @@ class GameTree:
                     #nd.load()
                     if level == 4:
                         s_key = ((vtf1.traj_id,vtf2.traj_id),(ptf1.traj_id,ptf2.traj_id))
+                        print(s_key,(vtf1.manv,vtf2.manv),(ptf1.manv,ptf2.manv))
                     else:
                         s_key = ((vtf1.traj_id,),(ptf1.traj_id,))
+                        print(s_key,(vtf1.manv),(ptf1.manv))
                     all_level_nodes[s_key] = nd
                 
         return all_level_nodes
 
-
-if __name__ == '__main__':
+def run_all_scenarios():
     initialize_db = True
     initialize_files = False
     with open(rg_constants.SCENE_OUT_PATH,newline='\n') as csv_file:
@@ -821,8 +878,7 @@ if __name__ == '__main__':
         line_count = 0
         for row in sc_reader:
             if not initialize_files:
-                if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')) and \
-                    os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.scenedef')):
+                if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
                     print('row',row,'processed...continuing')
                     continue
             dbfile_id = row[0]
@@ -845,15 +901,24 @@ if __name__ == '__main__':
                 gt.build_tree()
                 type(gt.root).progress_ctr = 0
                 type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
-                start_time = time.time()
-                gt.solve(SatisficingEquilibria())
-                drassign_obj = AssignDistRanges()
                 m = MinDistanceGapModel(file_id)
                 m.build_model()   
+                context = RunContext()
+                manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'track_speed'}}
+                context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True})
+                
+                drassign_obj = AssignDistRanges()
                 drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
-                pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'), gt)
-                pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.scenedef'), scene_def)
+                start_time = time.time()
+                gt.solve(SatisficingEquilibria(context))
                 print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
+                start_time = time.time()
+                gt.solve(RobustResponse(context))
+                print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                gt.scene_def = scene_def
+                pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'), gt)
+                #pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.scenedef'), scene_def)
+                
             except Exception as e:
                     # Get current system exception
                 ex_type, ex_value, ex_traceback = sys.exc_info()
@@ -871,5 +936,34 @@ if __name__ == '__main__':
                     fail_writer = csv.writer(failed_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
                     msg = row + [str(ex_type.__name__),str(ex_value),str(stack_trace)]
                     fail_writer.writerow(msg)
-                
+                '''
+                if not isinstance(e, UnsupportedLatticeException):
+                    raise
+                '''
             line_count += 1
+            
+def emp_path(gt,ag1_emptrajl,ag2_emptrajl):
+    f=1
+
+def results_all_scenarios():
+    with open(rg_constants.SCENE_OUT_PATH,newline='\n') as csv_file:
+        sc_reader = csv.reader(csv_file, delimiter=',')
+        line_count = 0
+        for row in sc_reader:
+            if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
+                dbfile_id = row[0]
+                agent1_id = int(row[3])
+                agent2_id = int(row[4])
+                start_ts = float(row[5])
+                scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=False,start_ts=start_ts)
+                f=1
+                
+                gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'))
+                
+                f=1
+            line_count += 1
+            print('processing',dbfile_id,line_count+1,agent1_id,agent2_id)
+            
+
+if __name__ == '__main__':
+    results_all_scenarios()

@@ -15,6 +15,8 @@ import math
 from operator import itemgetter
 import matplotlib.pyplot as plt
 from collections import defaultdict
+import constants, rg_constants
+from winioctlcon import IBM_Magstar_3590
 
 class ScenarioDef:
     
@@ -59,8 +61,12 @@ class ScenarioDef:
         for dup in sorted(self.list_duplicates([x[0] for x in path])):
             dup_indxs += dup[1][1:]
         _newpath = [x for idx,x in enumerate(path) if idx not in dup_indxs]
-        return _newpath
+        return _newpath,dup_indxs
     
+    def get_reasonable_velocities(self,seg):
+        seg_type = constants.SEGMENT_MAP[seg]
+        return rg_constants.PROCEED_VEL_RANGES[seg_type]
+        
     
     ''' from https://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list'''
     def list_duplicates(self,seq):
@@ -76,13 +82,15 @@ class ScenarioDef:
         constants.CURRENT_FILE_ID = file_id
         conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
         c = conn.cursor()
-        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" WHERE TRAJECTORIES_0"+constants.CURRENT_FILE_ID+".TRACK_ID="+str(agent_1_id)+" AND TIME >= "+str(start_ts)+" ORDER BY TIME"
+        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_0"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_1_id)+" AND TIME >= "+str(start_ts)+" ORDER BY TIME"
         c.execute(q_string)
         agent1_res = c.fetchall()
         agent1_path = [(x[1],x[2]) for idx,x in enumerate(agent1_res) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent1_res)-1, num=10)]]
-        agent1_path = self._remove_duplicate(agent1_path)
+        agent_1_path_segments = [x[9] for idx,x in enumerate(agent1_res) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent1_res)-1, num=10)]]
+        agent1_path,dup_indxs = self._remove_duplicate(agent1_path)
+        agent_1_path_segments = [x for idx,x in enumerate(agent_1_path_segments) if idx not in dup_indxs]
         ''' Get the track of a representative straight through vehicle to construct a path centerline '''
-        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" WHERE TRAJECTORIES_0"+constants.CURRENT_FILE_ID+".TRACK_ID="+str(agent_2_id)+" AND TIME >= "+str(start_ts)+"  ORDER BY TIME"
+        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_0"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_2_id)+" AND TIME >= "+str(start_ts)+"  ORDER BY TIME"
         c.execute(q_string)
         agent2_res = c.fetchall()
         if len(agent1_res)==0 or len(agent2_res)==0:
@@ -90,18 +98,21 @@ class ScenarioDef:
         else:
             self.time_crossed = False
             agent2_path = [(x[1],x[2]) for idx,x in enumerate(agent2_res) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res)-1, num=10)]]
-            agent2_path = self._remove_duplicate(agent2_path)
+            agent2_path_segments = [x[9] for idx,x in enumerate(agent2_res) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res)-1, num=10)]]
+            agent2_path,dup_indxs = self._remove_duplicate(agent2_path)
+            agent2_path_segments = [x for idx,x in enumerate(agent2_path_segments) if idx not in dup_indxs]
             agent2_start_ts = agent2_res[0][6]
             agent1_start_ts = agent1_res[0][6]
-            agent_1_attribs = {'x':agent1_res[0][1], 'y':agent1_res[0][2], 'velocity':agent1_res[0][3]/3.6, 'waypoints':agent1_path, 'file_time':agent1_start_ts, 'id':agent_1_id}
+            agent_1_attribs = {'x':agent1_res[0][1], 'y':agent1_res[0][2], 'velocity':agent1_res[0][3]/3.6, 'waypoints':agent1_path, 'file_time':agent1_start_ts, 'id':agent_1_id, 'waypoint_segments':agent_1_path_segments}
             if agent2_start_ts > agent1_start_ts:
                 oneshot_vehstate = self._setup_1shotrepo_state(agent2_res)
                 oneshot_vehstate.current_time = agent1_start_ts
                 interpolated_track = interpolate_track_info(veh_state = oneshot_vehstate, forward = False, backward = True, partial_track = None)
                 agent2_path = [(interpolated_track[1],interpolated_track[2])] + agent2_path
-                agent_2_attribs = {'x':interpolated_track[1], 'y':interpolated_track[2], 'velocity':interpolated_track[3], 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
+                agent2_path_segments = [agent2_path_segments[0]] + agent2_path_segments 
+                agent_2_attribs = {'x':interpolated_track[1], 'y':interpolated_track[2], 'velocity':interpolated_track[3], 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments}
             elif agent2_start_ts == agent1_start_ts:
-                agent_2_attribs = {'x':agent2_res[0][1], 'y':agent2_res[0][2], 'velocity':agent2_res[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
+                agent_2_attribs = {'x':agent2_res[0][1], 'y':agent2_res[0][2], 'velocity':agent2_res[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments}
             else:
                 agent2_res_trunc = None
                 for idx,pt in enumerate(agent2_res):
@@ -109,41 +120,95 @@ class ScenarioDef:
                         agent2_res_trunc = agent2_res[idx:]
                         break
                 agent2_path = [(x[1],x[2]) for idx,x in enumerate(agent2_res_trunc) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res_trunc)-1, num=10)]]
-                agent2_path = self._remove_duplicate(agent2_path)
-                agent_2_attribs = {'x':agent2_res_trunc[0][1], 'y':agent2_res_trunc[0][2], 'velocity':agent2_res_trunc[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id}
+                agent2_path_segments = [x[9] for idx,x in enumerate(agent2_res_trunc) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res_trunc)-1, num=10)]]
+                agent2_path,dup_indxs = self._remove_duplicate(agent2_path)
+                agent2_path_segments = [x for idx,x in enumerate(agent2_path_segments) if idx not in dup_indxs]
+                agent_2_attribs = {'x':agent2_res_trunc[0][1], 'y':agent2_res_trunc[0][2], 'velocity':agent2_res_trunc[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments}
             self.agent1 = VehicleState(agent_1_attribs)
             self.agent2 = VehicleState(agent_2_attribs)
             file_id = constants.CURRENT_FILE_ID+'_'+str(agent_1_id)+'_'+str(agent_2_id)+'_'+str(agent1_start_ts).replace('.',',')
-            self.agent1_emp_traj, self.agent2_emp_traj = [], []
-            for tp in agent1_res:
-                if 2 - (tp[6]-agent1_start_ts) < 0.3 and len(self.agent1_emp_traj)==0:
-                    traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
-                    self.agent1_emp_traj.append(traj_l)
-                if 4 - (tp[6]-agent1_start_ts) < 0.3 and len(self.agent1_emp_traj)==1:
-                    traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
-                    self.agent1_emp_traj.append(traj_l)
-                if 6 - (tp[6]-agent1_start_ts) < 0.3 and len(self.agent1_emp_traj)==2:
-                    traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
-                    self.agent1_emp_traj.append(traj_l)
-                    break
-            for tp in agent2_res:
-                if 2 - (tp[6]-agent2_start_ts) < 0.3 and len(self.agent2_emp_traj)==0:
-                    traj_l = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
-                    self.agent2_emp_traj.append(traj_l)
-                if 4 - (tp[6]-agent2_start_ts) < 0.3 and len(self.agent2_emp_traj)==1:
-                    traj_l = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
-                    self.agent2_emp_traj.append(traj_l)
-                if 6 - (tp[6]-agent2_start_ts) < 0.3 and len(self.agent2_emp_traj)==2:
-                    traj_l = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
-                    self.agent2_emp_traj.append(traj_l)
-                    break
+            self.assign_emp_traj_length(agent1_res, agent2_res, agent1_start_ts, agent2_start_ts)
                 
             if initialize_db:
                 self.setup_database(file_id)
+    
+    def assign_emp_traj_length(self,agent1_res,agent2_res,agent1_start_ts,agent2_start_ts):
+        self.agent1_emp_traj, self.agent2_emp_traj = [], []
+        ag1_times = []
+        for tp in agent1_res:
+            if 2 - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==0:
+                traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
+                self.agent1_emp_traj.append(traj_l)
+                ag1_times.append(tp[6])
+            if 4 - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==1:
+                traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
+                self.agent1_emp_traj.append(traj_l)
+                ag1_times.append(tp[6])
+            if 6 - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==2:
+                traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
+                self.agent1_emp_traj.append(traj_l)
+                ag1_times.append(tp[6])
+                break
+        
+        ag1_times = [agent1_start_ts] + ag1_times[:-1]
+        ag2_emp_tl = []
+        agent2_end_ts = agent2_res[-1][6]
+        for agt in ag1_times:
+            if agt < agent2_start_ts and agt+2<agent2_start_ts:
+                chunk_1,chunk_2 = (agent2_res[0][3]/3.6)*(2), 0
+                ag2_emp_tl.append(chunk_1+chunk_2)
+            elif agt <= agent2_start_ts and agt+2 <= agent2_end_ts:
+                chunk_1,chunk_2 = (agent2_res[0][3]/3.6)*(agent2_start_ts-agt), 0
+                for tp in agent2_res:
+                    if (agt+2 - tp[6]) < 0.1:
+                        chunk_2 = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
+                        break
+                ag2_emp_tl.append(chunk_1+chunk_2)
+            elif agent2_start_ts <= agt and agt+2 <= agent2_end_ts:
+                chunk_1_idx, chunk_2_idx = 0, 0
+                for idx,tp in enumerate(agent2_res):
+                    if (agt - tp[6]) < 0.1:
+                        chunk_1_idx = idx
+                        break
+                for idx,tp in enumerate(agent2_res):
+                    if (agt+2 - tp[6]) < 0.1:
+                        chunk_2_idx = idx
+                        break
+                trajl = math.hypot(agent2_res[chunk_2_idx][1]-agent2_res[chunk_1_idx][1], agent2_res[chunk_2_idx][2]-agent2_res[chunk_1_idx][2])
+                ag2_emp_tl.append(trajl)
+            elif agt <= agent2_end_ts and agent2_end_ts <= agt+2:
+                chunk_1,chunk_2 = 0, (agent2_res[-1][3]/3.6)*(agt+2-agent2_end_ts)
+                for tp in agent2_res:
+                    if (agt - tp[6]) < 0.1:
+                        chunk_2 = math.hypot(tp[1]-agent2_res[-1][1], tp[2]-agent2_res[-1][2])
+                        break
+                ag2_emp_tl.append(chunk_1+chunk_2)
+            elif agt <= agent2_start_ts and agent2_end_ts <= agt+2:
+                chunk_1,chunk_3 = (agent2_res[0][3]/3.6)*(agent2_start_ts-agt), (agent2_res[-1][3]/3.6)*(agt+2-agent2_end_ts)
+                chunk_2 = math.hypot(agent2_res[0][1]-agent2_res[-1][1], agent2_res[0][2]-agent2_res[-1][2])
+                ag2_emp_tl.append(chunk_1+chunk_2+chunk_3)
+            elif agent1_start_ts == agt and agent2_end_ts == agt+2:
+                traj_l = math.hypot(agent2_res[0][1]-agent2_res[-1][1], agent2_res[0][2]-agent2_res[-1][2])
+                ag2_emp_tl.append(trajl)
+            else:
+                raise Exception()
+        self.agent2_emp_traj =  np.cumsum(ag2_emp_tl).tolist()
+        f=1
+        
+                        
+            
+            
+            
+            
+        
             
     def setup_trajectory_constraints(self):
         maneuver_constraints = {'agent_1':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':self.agent1},'agent_2':{'maneuvers':{'wait':None,'track_speed':None}, 'agent_state':self.agent2}}
-        agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent1.waypoints)-1))//2 else (2,4) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [(4,8.3)]
+        if len(self.agent1.waypoints) < 5:
+            agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent1.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent1.waypoint_segments[i]) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [(4,8.3)]
+        else:
+            agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent1.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent1.waypoint_segments[i]) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [(4,8.3)]
+        #agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [(4,8.3)]
         agent2_vel_pts_proc = [(self.agent2.velocity,)] + [(None,)]*(len(self.agent2.waypoints)-2) + [(8,17)]
         min_distgp_indx = min(enumerate([math.hypot(x[0]-y[1], x[0]-y[1]) for x,y in zip(self.agent1.waypoints,self.agent2.waypoints)]), key=itemgetter(1))[0] 
         agent_2_dist_2_stop = math.hypot(self.agent2.waypoints[min_distgp_indx][0]-self.agent2.waypoints[0][0], self.agent2.waypoints[min_distgp_indx][1]-self.agent2.waypoints[0][1])
