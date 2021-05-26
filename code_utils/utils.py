@@ -37,6 +37,47 @@ def plot_line(ax, ob):
     ax.plot(x, y, c=np.random.rand(3,), alpha=0.7, linewidth=3, solid_capstyle='round', zorder=2)
 
 
+def get_all_level_nodes(node,node_list,tree_level):
+    if node.level == tree_level:
+        node_list += [node]
+        return node_list
+    else:
+        for c in node.children:
+            get_all_level_nodes(c,node_list,tree_level)
+        return node_list
+
+def get_within_node(node_list,ag1_emptrajl,ag2_emptrajl):
+    trajl_errs = []
+    for c in node_list:
+        ag_1l = c.path_from_root['agent_1'].get_last().length
+        ag_2l = c.path_from_root['agent_2'].get_last().length
+        if min(ag1_emptrajl) <= ag_1l <= max(ag1_emptrajl) and min(ag2_emptrajl) <= ag_2l <= max(ag2_emptrajl):
+            trajl_errs.append(c._ext_id)
+    return trajl_errs
+
+def get_nearest_node(node_list,ag1_emptrajl,ag2_emptrajl):
+    trajl_errs = []
+    for c in node_list:
+        ag_1l,ag_2l = [],[]
+        ag_1l = c.path_from_root['agent_1'].get_last().length
+        ag_2l = c.path_from_root['agent_2'].get_last().length
+        '''
+        while True:
+            ag_1l.append(_tf.length if len(ag_1l)==0 else ag_1l[-1]+_tf.length)
+            if _tf.next_fragment is None:
+                break
+            _tf = _tf.next_fragment 
+        _tf = c.path_from_root['agent_2']
+        while True:
+            ag_2l.append(_tf.length if len(ag_2l)==0 else ag_2l[-1]+_tf.length)
+            if _tf.next_fragment is None:
+                break
+            _tf = _tf.next_fragment    
+        '''
+        trajl_errs.append((c._ext_id,abs(ag1_emptrajl-ag_1l),abs(ag2_emptrajl-ag_2l)))
+    trajl_errs.sort(key=lambda tup: tup[1]+tup[2])
+    return trajl_errs[0]
+
 
 def lighten_color(color, amount=0.5):
     """

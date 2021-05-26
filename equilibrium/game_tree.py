@@ -23,6 +23,7 @@ import constants
 import csv
 from all_utils.utils import pickle_dump_to_dir
 import rg_constants
+from code_utils.utils import get_all_level_nodes, get_nearest_node
 import os
 import traceback
 import sys
@@ -30,6 +31,8 @@ from equilibrium.range_estimation import MinDistanceGapModel
 from equilibrium.gametree_objects import TrajectoryCache, TrajectoryFragment
 from code_utils.code_util_objects import RunContext
 import all_utils
+import copy
+from networkx.algorithms.cuts import node_expansion
 
 log = constants.common_logger
 from equilibrium.automata_strategies import *
@@ -470,6 +473,79 @@ class Node:
     tree_size = 0
     
     def print_Node(self,last_decision_level):
+        node_result = {'mspe':False,'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
+        if self.level == last_decision_level:
+            if hasattr(self, 'emp_path') and self.emp_path:
+                next_emp_node = None
+                for n in self.children:
+                    if hasattr(n, 'emp_path') and n.emp_path:
+                        next_emp_node = n
+                        break
+                ag1_emp_trajl = next_emp_node.path_from_root['agent_1'].get_last().length
+                ag2_emp_trajl = next_emp_node.path_from_root['agent_2'].get_last().length
+                if hasattr(next_emp_node, 'on_mspe') and np.any(next_emp_node.onmspe):
+                    node_result['mspe'] = True
+                else:
+                    node_result['mspe'] = False
+                if hasattr(self, 'automata_strategy_info'):
+                    node_result['ag1_ac'] = self.automata_strategy_info['agent_1']['ac_auto_gamma'],
+                    node_result['ag1_nac'] = self.automata_strategy_info['agent_1']['nac_auto_gamma']
+                    node_result['ag2_ac'] = self.automata_strategy_info['agent_2']['ac_auto_gamma']
+                    node_result['ag2_nac'] = self.automata_strategy_info['agent_2']['nac_auto_gamma']
+                if hasattr(self, 'auto_strategy_response'):
+                    ag1_resp = self.auto_strategy_response['agent_1'][0][:,0]
+                    ag1_resp_min = self.auto_strategy_response['agent_1'][1][:,0]
+                    for i,resp in enumerate(ag1_resp):
+                        if  min(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']) <= ag1_emp_trajl <= max(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']):
+                            node_result['ag1_auto_resp'].append(i)
+                    ag2_resp = self.auto_strategy_response['agent_2'][0][0,:]
+                    ag2_resp_min = self.auto_strategy_response['agent_2'][1][0,:]
+                    for i,resp in enumerate(ag2_resp):
+                        if  min(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']) <= ag2_emp_trajl <= max(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']):
+                            node_result['ag2_auto_resp'].append(i) 
+                print_str = [str(self.level)]
+                for k,v in node_result.items():
+                    print_str.append(k+':'+str(v))
+                print(' '.join(print_str))
+                    
+        else:
+            if not self.is_leaf: 
+                for c in self.children:
+                    c.print_Node(last_decision_level)
+                if hasattr(self, 'emp_path') and self.emp_path:
+                    next_emp_node = None
+                    for n in self.children:
+                        if hasattr(n, 'emp_path') and n.emp_path:
+                            next_emp_node = n
+                            break
+                    ag1_emp_trajl = next_emp_node.path_from_root['agent_1'].get_last().length
+                    ag2_emp_trajl = next_emp_node.path_from_root['agent_2'].get_last().length
+                    if hasattr(next_emp_node, 'on_mspe') and np.any(next_emp_node.on_mspe):
+                        node_result['mspe'] = True
+                    else:
+                        node_result['mspe'] = False
+                    if self.automata_strategy_info is not None:
+                        node_result['ag1_ac'] = self.automata_strategy_info['agent_1']['ac_auto_gamma'],
+                        node_result['ag1_nac'] = self.automata_strategy_info['agent_1']['nac_auto_gamma']
+                        node_result['ag2_ac'] = self.automata_strategy_info['agent_2']['ac_auto_gamma']
+                        node_result['ag2_nac'] = self.automata_strategy_info['agent_2']['nac_auto_gamma']
+                    if hasattr(self, 'auto_strategy_response'):
+                        ag1_resp = self.auto_strategy_response['agent_1'][0][:,0]
+                        ag1_resp_min = self.auto_strategy_response['agent_1'][1][:,0]
+                        for i,resp in enumerate(ag1_resp):
+                            if  min(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']) <= ag1_emp_trajl <= max(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']):
+                                node_result['ag1_auto_resp'].append(i)
+                        ag2_resp = self.auto_strategy_response['agent_2'][0][0,:]
+                        ag2_resp_min = self.auto_strategy_response['agent_2'][1][0,:]
+                        for i,resp in enumerate(ag2_resp):
+                            if  min(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']) <= ag2_emp_trajl <= max(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']):
+                                node_result['ag2_auto_resp'].append(i) 
+                
+                    print_str = [str(self.level)]
+                    for k,v in node_result.items():
+                        print_str.append(k+':'+str(v))
+                    print(' '.join(print_str))    
+        '''        
         if self.level == last_decision_level:
             if all(x==[x.manv for x in self.actions['agent_1']][0] for x in [x.manv for x in self.actions['agent_1']]):
                 ag1_alleq = True
@@ -500,7 +576,7 @@ class Node:
             
                 print(self._ext_id,ag1_alleq,ag2_alleq,self.level, self.auto_strategy_response['agent_1'][0][2,2]['traj_l'] if 'agent_1' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].veh_eq_acts[0] if self.equilibrium_solutions[2,2] is not None and self.equilibrium_solutions[2,2][0] is not None else 'None', self.robust_response['agent_1'][2][0].veh_eq_acts[0] if self.robust_response is not None and 'agent_1' in self.robust_response else 'None',
                   self.auto_strategy_response['agent_2'][0][2,2]['traj_l'] if 'agent_2' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].peds_eq_acts[0] if self.equilibrium_solutions[2,2] is not None else 'None', self.robust_response['agent_2'][2][0].peds_eq_acts[0] if self.robust_response is not None and 'agent_2' in self.robust_response else 'None')
-    
+        '''
     def __init__(self,level, path_from_root,_ext_id):
         self.level = level
         self.path_from_root = path_from_root
@@ -666,8 +742,14 @@ class GameTree:
                             ptf = TrajectoryFragment(time_range=(4,6),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3])
                             vtf.load(self.file_id,v_tcache_4_6)
                             ptf.load(self.file_id,p_tcache_4_6)
+                            _newvtf = copy.deepcopy(level_nodes_4s[n4s].path_from_root['agent_1'])
+                            _newvtf.is_last = False
+                            _newvtf.get_last().next_fragment = vtf
+                            _newptf = copy.deepcopy(level_nodes_4s[n4s].path_from_root['agent_2'])
+                            _newptf.is_last = False
+                            _newptf.get_last().next_fragment = ptf
                             _ext_id = GameTree.counter
-                            nd = Node(6,{'agent_1':vtf, 'agent_2':ptf},_ext_id)
+                            nd = Node(6,{'agent_1':_newvtf, 'agent_2':_newptf},_ext_id)
                             GameTree.counter += 1
                             n6.append(nd)
                         for _n in n6:
@@ -676,6 +758,7 @@ class GameTree:
                     if len(level_nodes_4s[n4s].children) == 0:
                         level_nodes_4s[n4s].children = None
             n.children = n_children
+            
             
                 
         self.root.children = list(level_nodes_2s.values())
@@ -721,9 +804,10 @@ class GameTree:
     
     def solve(self,eq_class):
         eq_class.solve(node = self.root,last_decision_level=self.last_decision_level)
+        eq_class.set_oneq_label(self)
     
     def print_tree(self):
-        self.root.print_Node(self.last_decision_level)
+        self.root.print_Node(6)
     
     def build_level_nodes(self, level):
         conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
@@ -825,7 +909,7 @@ class GameTree:
                     if level == 4:
                         vtf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2])
                         vtf2.is_last = True
-                        vtf1.set_next_fragment(vtf2)
+                        vtf1.next_fragment = vtf2
                     else:
                         vtf1.is_last = True
                 else:
@@ -834,7 +918,7 @@ class GameTree:
                     if level == 4:
                         vtf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2])
                         vtf2.is_last = True
-                        vtf1.set_next_fragment(vtf2)
+                        vtf1.next_fragment = vtf2
                     else:
                         vtf1.is_last = True
                 for idx2,peds_row in enumerate(peds_res):
@@ -845,7 +929,7 @@ class GameTree:
                         if level == 4:
                             ptf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2])
                             ptf2.is_last = True
-                            ptf1.set_next_fragment(ptf2)
+                            ptf1.next_fragment = ptf2
                         else:
                             ptf1.is_last = True
                     else:
@@ -853,7 +937,7 @@ class GameTree:
                         if level == 4:
                             ptf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2])
                             ptf2.is_last = True
-                            ptf1.set_next_fragment(ptf2)
+                            ptf1.next_fragment = ptf2
                         else:
                             ptf1.is_last = True
                     _ext_id = GameTree.counter
@@ -906,11 +990,11 @@ def run_all_scenarios():
                 context = RunContext()
                 manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'track_speed'}}
                 context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True})
-                
                 drassign_obj = AssignDistRanges()
                 drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
                 start_time = time.time()
-                gt.solve(SatisficingEquilibria(context))
+                eq_obj = SatisficingEquilibria(context)
+                gt.solve(eq_obj)
                 print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
                 start_time = time.time()
                 gt.solve(RobustResponse(context))
@@ -941,9 +1025,38 @@ def run_all_scenarios():
                     raise
                 '''
             line_count += 1
+            if line_count > 2:
+                break
             
-def emp_path(gt,ag1_emptrajl,ag2_emptrajl):
-    f=1
+
+
+    
+def assign_emp_nodes(gt,scene_def):
+    gt.root.emp_path = True
+    l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=2)
+    emp_2l = get_nearest_node(l2_nodes, scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[0])
+    for n2l in l2_nodes:
+        '''assign emp path value '''
+        if n2l._ext_id == emp_2l[0]:
+            n2l.emp_path = True
+            emp_4l = get_nearest_node(n2l.children, scene_def.agent1_emp_traj[1]-scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[1]-scene_def.agent2_emp_traj[0])
+            for n4l in n2l.children:
+                if n4l._ext_id == emp_4l[0]:
+                    n4l.emp_path = True
+                    emp_6l = get_nearest_node(n4l.children, scene_def.agent1_emp_traj[2]-scene_def.agent1_emp_traj[1], scene_def.agent2_emp_traj[2]-scene_def.agent2_emp_traj[1])
+                    for n6l in n4l.children:
+                        if n6l._ext_id == emp_6l[0]:
+                            n6l.emp_path = True
+                        else:
+                            n6l.emp_path = False
+                else:
+                    n4l.emp_path = False
+            f=1
+        else:
+            n2l.emp_path = False
+        f=1
+        
+        
 
 def results_all_scenarios():
     with open(rg_constants.SCENE_OUT_PATH,newline='\n') as csv_file:
@@ -956,14 +1069,15 @@ def results_all_scenarios():
                 agent2_id = int(row[4])
                 start_ts = float(row[5])
                 scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=False,start_ts=start_ts)
-                f=1
-                
                 gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'))
-                
-                f=1
-            line_count += 1
+                gt.scene_def = scene_def
+                assign_emp_nodes(gt,scene_def)
+                gt.print_tree()
+                if line_count == 0:
+                    break
+                line_count += 1
             print('processing',dbfile_id,line_count+1,agent1_id,agent2_id)
             
 
 if __name__ == '__main__':
-    results_all_scenarios()
+    run_all_scenarios()

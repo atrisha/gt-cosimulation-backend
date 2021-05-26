@@ -199,8 +199,8 @@ class MinDistanceGapModel:
             tf0_2 = TrajectoryFragment((0,2),row[0],row[1],row[2],0)
             tf2_4 = TrajectoryFragment((2,4),row[0],row[1],row[2],0)
             tf4_6 = TrajectoryFragment((4,6),row[0],row[1],row[2],0)
-            tf2_4.set_next_fragment(tf4_6)
-            tf0_2.set_next_fragment(tf2_4)
+            tf2_4.next_fragment = tf4_6
+            tf0_2.next_fragment = tf2_4
             #trajectories.append(tf0_2)
             if (row[1],row[1],row[1]) not in trajectories:
                 trajectories[(row[1],row[1],row[1])] = [tf0_2]
@@ -228,8 +228,8 @@ class MinDistanceGapModel:
                 tf0_2 = TrajectoryFragment((0,2),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time)
                 tf2_4 = TrajectoryFragment((2,4),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time)
                 tf4_6 = TrajectoryFragment((4,6),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time)
-                tf2_4.set_next_fragment(tf4_6)
-                tf0_2.set_next_fragment(tf2_4)
+                tf2_4.next_fragment = tf4_6
+                tf0_2.next_fragment = tf2_4
                 #trajectories.append(tf0_2)
                 if (frag_1_manv,frag_2_manv,frag_2_manv) not in trajectories:
                     trajectories[(frag_1_manv,frag_2_manv,frag_2_manv)] = [tf0_2]
@@ -239,8 +239,8 @@ class MinDistanceGapModel:
                 tf0_2 = TrajectoryFragment((0,2),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time)
                 tf2_4 = TrajectoryFragment((2,4),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time)
                 tf4_6 = TrajectoryFragment((4,6),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time)
-                tf2_4.set_next_fragment(tf4_6)
-                tf0_2.set_next_fragment(tf2_4)
+                tf2_4.next_fragment = tf4_6
+                tf0_2.next_fragment = tf2_4
                 #trajectories.append(tf0_2)
                 if (frag_1_manv,frag_1_manv,frag_2_manv) not in trajectories:
                     trajectories[(frag_1_manv,frag_1_manv,frag_2_manv)] = [tf0_2]
@@ -256,8 +256,8 @@ class MinDistanceGapModel:
             tf0_2 = TrajectoryFragment((0,2),row[0],row[1],row[2],row[9])
             tf2_4 = TrajectoryFragment((2,4),row[3],row[4],row[5],row[10])
             tf4_6 = TrajectoryFragment((4,6),row[6],row[7],row[8],row[11])
-            tf2_4.set_next_fragment(tf4_6)
-            tf0_2.set_next_fragment(tf2_4)
+            tf2_4.next_fragment = tf4_6
+            tf0_2.next_fragment = tf2_4
             #trajectories.append(tf0_2)
             if (row[1],row[4],row[7]) not in trajectories:
                 trajectories[(row[1],row[4],row[7])] = [tf0_2]

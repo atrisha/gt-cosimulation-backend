@@ -42,9 +42,7 @@ class TrajectoryFragment:
         self.manv_mode = manv_mode
         self._is_last = False
         self.loaded = False
-    
-    def set_next_fragment(self, traj_fragment):
-        self.next_fragment = traj_fragment
+        self._next_fragment = None
     
     @property 
     def length(self):
@@ -60,6 +58,15 @@ class TrajectoryFragment:
     @is_last.setter
     def is_last(self, value):
         self._is_last = value
+    
+    @property
+    def next_fragment(self):
+        return self._next_fragment
+    
+    @next_fragment.setter
+    def next_fragment(self, value):
+        self.is_last = False
+        self._next_fragment = value
     
     @property
     def loaded(self):
@@ -101,4 +108,6 @@ class TrajectoryFragment:
         while not _tf.is_last:
             _tf = _tf.next_fragment
         return _tf
+    
+    
 
