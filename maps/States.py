@@ -81,8 +81,9 @@ class ScenarioDef:
                                 if len(locs)>1)
 
         
-    def __init__(self,agent_1_id, agent_2_id,file_id,initialize_db,start_ts):
-        
+    def __init__(self,agent_1_id, agent_2_id,file_id,initialize_db,start_ts,freq):
+        self.freq = freq
+        self.horizon = int(3/self.freq)
         constants.CURRENT_FILE_ID = file_id
         conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
         c = conn.cursor()
@@ -140,17 +141,18 @@ class ScenarioDef:
     
     def assign_emp_traj_length(self,agent1_res,agent2_res,agent1_start_ts,agent2_start_ts):
         self.agent1_emp_traj, self.agent2_emp_traj = [], []
+        start_time,one_step_t,two_step_t,three_step_t = 0,int(1/self.freq),int(2*int(1/self.freq)),self.horizon
         ag1_times = []
         for tp in agent1_res:
-            if 2 - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==0:
+            if one_step_t - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==0:
                 traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
                 self.agent1_emp_traj.append(traj_l)
                 ag1_times.append(tp[6])
-            if 4 - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==1:
+            if two_step_t - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==1:
                 traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
                 self.agent1_emp_traj.append(traj_l)
                 ag1_times.append(tp[6])
-            if 6 - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==2:
+            if three_step_t - (tp[6]-agent1_start_ts) < 0.1 and len(self.agent1_emp_traj)==2:
                 traj_l = math.hypot(tp[1]-agent1_res[0][1], tp[2]-agent1_res[0][2])
                 self.agent1_emp_traj.append(traj_l)
                 ag1_times.append(tp[6])
@@ -160,40 +162,40 @@ class ScenarioDef:
         ag2_emp_tl = []
         agent2_end_ts = agent2_res[-1][6]
         for agt in ag1_times:
-            if agt < agent2_start_ts and agt+2<agent2_start_ts:
-                chunk_1,chunk_2 = (agent2_res[0][3]/3.6)*(2), 0
+            if agt < agent2_start_ts and agt+one_step_t<agent2_start_ts:
+                chunk_1,chunk_2 = (agent2_res[0][3]/3.6)*(one_step_t), 0
                 ag2_emp_tl.append(chunk_1+chunk_2)
-            elif agt <= agent2_start_ts and agt+2 <= agent2_end_ts:
+            elif agt <= agent2_start_ts and agt+one_step_t <= agent2_end_ts:
                 chunk_1,chunk_2 = (agent2_res[0][3]/3.6)*(agent2_start_ts-agt), 0
                 for tp in agent2_res:
-                    if (agt+2 - tp[6]) < 0.1:
+                    if (agt+one_step_t - tp[6]) < 0.1:
                         chunk_2 = math.hypot(tp[1]-agent2_res[0][1], tp[2]-agent2_res[0][2])
                         break
                 ag2_emp_tl.append(chunk_1+chunk_2)
-            elif agent2_start_ts <= agt and agt+2 <= agent2_end_ts:
+            elif agent2_start_ts <= agt and agt+one_step_t <= agent2_end_ts:
                 chunk_1_idx, chunk_2_idx = 0, 0
                 for idx,tp in enumerate(agent2_res):
                     if (agt - tp[6]) < 0.1:
                         chunk_1_idx = idx
                         break
                 for idx,tp in enumerate(agent2_res):
-                    if (agt+2 - tp[6]) < 0.1:
+                    if (agt+one_step_t - tp[6]) < 0.1:
                         chunk_2_idx = idx
                         break
                 trajl = math.hypot(agent2_res[chunk_2_idx][1]-agent2_res[chunk_1_idx][1], agent2_res[chunk_2_idx][2]-agent2_res[chunk_1_idx][2])
                 ag2_emp_tl.append(trajl)
-            elif agt <= agent2_end_ts and agent2_end_ts <= agt+2:
-                chunk_1,chunk_2 = 0, (agent2_res[-1][3]/3.6)*(agt+2-agent2_end_ts)
+            elif agt <= agent2_end_ts and agent2_end_ts <= agt+one_step_t:
+                chunk_1,chunk_2 = 0, (agent2_res[-1][3]/3.6)*(agt+one_step_t-agent2_end_ts)
                 for tp in agent2_res:
                     if (agt - tp[6]) < 0.1:
                         chunk_1 = math.hypot(tp[1]-agent2_res[-1][1], tp[2]-agent2_res[-1][2])
                         break
                 ag2_emp_tl.append(chunk_1+chunk_2)
-            elif agt <= agent2_start_ts and agent2_end_ts <= agt+2:
-                chunk_1,chunk_3 = (agent2_res[0][3]/3.6)*(agent2_start_ts-agt), (agent2_res[-1][3]/3.6)*(agt+2-agent2_end_ts)
+            elif agt <= agent2_start_ts and agent2_end_ts <= agt+one_step_t:
+                chunk_1,chunk_3 = (agent2_res[0][3]/3.6)*(agent2_start_ts-agt), (agent2_res[-1][3]/3.6)*(agt+one_step_t-agent2_end_ts)
                 chunk_2 = math.hypot(agent2_res[0][1]-agent2_res[-1][1], agent2_res[0][2]-agent2_res[-1][2])
                 ag2_emp_tl.append(chunk_1+chunk_2+chunk_3)
-            elif agent1_start_ts == agt and agent2_end_ts == agt+2:
+            elif agent1_start_ts == agt and agent2_end_ts == agt+one_step_t:
                 traj_l = math.hypot(agent2_res[0][1]-agent2_res[-1][1], agent2_res[0][2]-agent2_res[-1][2])
                 ag2_emp_tl.append(trajl)
             else:
@@ -216,6 +218,11 @@ class ScenarioDef:
             agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent1.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent1.waypoint_segments[i], self.agent1.direction) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [self.get_reasonable_velocities(self.agent1.waypoint_segments[-1], self.agent1.direction)]
         #agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [(4,8.3)]
         agent2_vel_pts_proc = [(self.agent2.velocity,)] + [(None,)]*(len(self.agent2.waypoints)-2) + [(8,17)]
+        if len(self.agent2.waypoints) < 5:
+            agent2_vel_pts_proc = [(self.agent2.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent2.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent2.waypoint_segments[i], self.agent2.direction) for i in np.arange(1,len(self.agent2.waypoints)-1)] + [self.get_reasonable_velocities(self.agent2.waypoint_segments[-1], self.agent2.direction)]
+        else:
+            agent2_vel_pts_proc = [(self.agent2.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent2.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent2.waypoint_segments[i], self.agent2.direction) for i in np.arange(1,len(self.agent2.waypoints)-1)] + [self.get_reasonable_velocities(self.agent2.waypoint_segments[-1], self.agent2.direction)]
+        
         min_distgp_indx = min(enumerate([math.hypot(x[0]-y[1], x[0]-y[1]) for x,y in zip(self.agent1.waypoints,self.agent2.waypoints)]), key=itemgetter(1))[0] 
         agent_2_dist_2_stop = math.hypot(self.agent2.waypoints[min_distgp_indx][0]-self.agent2.waypoints[0][0], self.agent2.waypoints[min_distgp_indx][1]-self.agent2.waypoints[0][1])
         agent_2_time_2_stop = agent_2_dist_2_stop/self.agent2.velocity if self.agent2.velocity !=0 else 2
@@ -229,9 +236,9 @@ class ScenarioDef:
         agent_1_dist_1_stop = math.hypot(self.agent1.waypoints[min_distgp_indx][0]-self.agent1.waypoints[0][0], self.agent1.waypoints[min_distgp_indx][1]-self.agent1.waypoints[0][1])
         agent_1_time_1_stop = agent_1_dist_1_stop/self.agent1.velocity if self.agent1.velocity !=0 else 2
         agent1_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent1.velocity,waypoints=self.agent1.waypoints,stop_horizon_dist_sampling_range=(1,5),stop_horizon_time_sampling_range=(1,4))
-        agent2_traj_constr_proc = ProceedTrajectoryConstraints(waypoints=self.agent1.waypoints,waypoint_vel_sampling_range=agent1_vel_pts_proc)
+        agent1_traj_constr_proc = ProceedTrajectoryConstraints(waypoints=self.agent1.waypoints,waypoint_vel_sampling_range=agent1_vel_pts_proc)
         maneuver_constraints['agent_1']['maneuvers']['wait'] = agent1_traj_constr_wait
-        maneuver_constraints['agent_1']['maneuvers']['turn'] = agent2_traj_constr_proc
+        maneuver_constraints['agent_1']['maneuvers']['turn'] = agent1_traj_constr_proc
         '''
         plt.plot([x[0] for x in self.agent1.waypoints], [x[1] for x in self.agent1.waypoints], c = 'blue',marker='o')
         plt.plot([x[0] for x in self.agent2.waypoints], [x[1] for x in self.agent2.waypoints] , c = 'red',marker='o')

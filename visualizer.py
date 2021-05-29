@@ -13,6 +13,7 @@ from scipy.ndimage import gaussian_filter1d
 import math
 from equilibrium.range_estimation import MinDistanceGapModel
 
+
 def gaussian_smoothing(a):
     x, y = a.T
     t = np.linspace(0, 1, len(x))
@@ -192,5 +193,42 @@ class UniWeberAnalytics:
         m = MinDistanceGapModel(self.file_id)
         
     
+
+class UniWeberResultsAnalysis:
+    
+    def plot_velocity_profiles(self,gt,scene_def,freq):
+        ag1_vel_profiles,ag2_vel_profiles = {'1':[],'2':[],'3':[]},{'1':[],'2':[],'3':[]}
+        l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=int(1/gt.freq))
+        if not (len(scene_def.agent1_emp_traj)==0 or len(scene_def.agent2_emp_traj)==0):
+            emp_2l = get_nearest_node(l2_nodes, scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[0])
+            for n2l in l2_nodes:
+                '''assign emp path value '''
+                ag1_vel_profiles['1'].append([x[3] for x in n2l.path_from_root['agent_1'].loaded_traj_frag])
+                ag2_vel_profiles['1'].append([x[3] for x in n2l.path_from_root['agent_2'].loaded_traj_frag])
+                if n2l._ext_id == emp_2l[0]:
+                    n2l.emp_path = True
+                else:
+                    n2l.emp_path = False
+                if len(scene_def.agent1_emp_traj) > 1 and n2l.children is not None:
+                        emp_4l = get_nearest_node(n2l.children, scene_def.agent1_emp_traj[1]-scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[1]-scene_def.agent2_emp_traj[0])
+                        for n4l in n2l.children:
+                            if n4l._ext_id == emp_4l[0]:
+                                n4l.emp_path = True
+                            else:
+                                n4l.emp_path = False
+                            ag1_vel_profiles['2'].append([x[3] for x in n4l.path_from_root['agent_1'].get_last().loaded_traj_frag])
+                            ag2_vel_profiles['2'].append([x[3] for x in n4l.path_from_root['agent_2'].get_last().loaded_traj_frag])
+                            if len(scene_def.agent1_emp_traj) > 2 and n4l.children is not None:
+                                emp_6l = get_nearest_node(n4l.children, scene_def.agent1_emp_traj[2]-scene_def.agent1_emp_traj[1], scene_def.agent2_emp_traj[2]-scene_def.agent2_emp_traj[1])
+                                for n6l in n4l.children:
+                                    if n6l._ext_id == emp_6l[0]:
+                                        n6l.emp_path = True
+                                    else:
+                                        n6l.emp_path = False
+                                    ag1_vel_profiles['3'].append([x[3] for x in n6l.path_from_root['agent_1'].get_last().loaded_traj_frag])
+                                    ag2_vel_profiles['3'].append([x[3] for x in n6l.path_from_root['agent_2'].get_last().loaded_traj_frag])
+        
+        f=1
+        
         
         

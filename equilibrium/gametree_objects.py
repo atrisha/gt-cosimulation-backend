@@ -34,7 +34,7 @@ class TrajectoryCache:
 
 class TrajectoryFragment:
     
-    def __init__(self,time_range,traj_id,manv,manv_mode,init_time):
+    def __init__(self,time_range,traj_id,manv,manv_mode,init_time,horizon):
         self.time_range = time_range
         self.init_time = init_time
         self.traj_id = traj_id
@@ -43,6 +43,7 @@ class TrajectoryFragment:
         self._is_last = False
         self.loaded = False
         self._next_fragment = None
+        self.horizon = horizon
     
     @property 
     def length(self):
@@ -53,7 +54,7 @@ class TrajectoryFragment:
     
     @property
     def is_last(self):
-        return self._is_last or self.time_range[1] == 6
+        return self._is_last or self.time_range[1] == self.horizon
     
     @is_last.setter
     def is_last(self, value):

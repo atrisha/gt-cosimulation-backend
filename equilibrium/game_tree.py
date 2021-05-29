@@ -23,7 +23,8 @@ import constants
 import csv
 from all_utils.utils import pickle_dump_to_dir
 import rg_constants
-from code_utils.utils import get_all_level_nodes, get_nearest_node
+from code_utils.utils import get_all_level_nodes, get_nearest_node,\
+    lighten_color
 import os
 import traceback
 import sys
@@ -32,7 +33,10 @@ from equilibrium.gametree_objects import TrajectoryCache, TrajectoryFragment
 from code_utils.code_util_objects import RunContext
 import all_utils
 import copy
-from networkx.algorithms.cuts import node_expansion
+from os import listdir
+import matplotlib.pyplot as plt
+from os.path import isfile, join
+
 
 log = constants.common_logger
 from equilibrium.automata_strategies import *
@@ -66,6 +70,9 @@ class AssignDistRanges:
     
     def assign_distranges(self,node,last_decision_level,model):
         if node.level == last_decision_level:
+            for c in node.children:
+                self.assign_distranges(c,last_decision_level,model)
+                
             self.predict_dist_ranges(node, model, last_decision_level)
         else:
             if not node.is_leaf: 
@@ -76,7 +83,8 @@ class AssignDistRanges:
                 else:
                     node.automata_strategy_info = None
             else:
-                node.automata_strategy_info = None
+                #node.automata_strategy_info = None
+                self.predict_dist_ranges(node, model, last_decision_level)
     
     def predict_dist_ranges(self, node, model, last_decision_level):
         node.automata_strategy_info = dict()
@@ -89,10 +97,16 @@ class AssignDistRanges:
             proceed_manv = 'turn' if ag == 'agent_1' else 'track_speed'
             predicted_distgap_range = distgap_model.predict(list(zip(obs_trajl,obs_manvs)), {'wait':wait_manv,'proceed':proceed_manv})
             automata_strat_info = [(obs_manvs[-1],predicted_distgap_range)]
-            if node.level == last_decision_level and node.level > 2:
+            if node.level >= last_decision_level and node.level > 2:
                 obs_trajl.append(obs_trajl[-1]+node.path_from_root[ag].next_fragment.length)
                 obs_manvs.append(node.path_from_root[ag].next_fragment.manv)
                 obs_manvs_mode.append(node.path_from_root[ag].next_fragment.manv_mode)
+                predicted_distgap_range = distgap_model.predict(list(zip(obs_trajl,obs_manvs)), {'wait':wait_manv,'proceed':proceed_manv})
+                automata_strat_info.append((obs_manvs[-1],predicted_distgap_range))
+            if node.level == last_decision_level+2:
+                obs_trajl.append(obs_trajl[-1]+node.path_from_root[ag].next_fragment.next_fragment.length)
+                obs_manvs.append(node.path_from_root[ag].next_fragment.next_fragment.manv)
+                obs_manvs_mode.append(node.path_from_root[ag].next_fragment.next_fragment.manv_mode)
                 predicted_distgap_range = distgap_model.predict(list(zip(obs_trajl,obs_manvs)), {'wait':wait_manv,'proceed':proceed_manv})
                 automata_strat_info.append((obs_manvs[-1],predicted_distgap_range))
             ac_auto = AccommodatingGamma(wait_manv,proceed_manv)
@@ -130,8 +144,6 @@ class Actions:
         
     
     def generate_actions(self,init_time,agent1_init_vel,agent2_init_vel,horizon, insert_into_db = False):
-        
-        horizon = 6
         agent1_trajs,agent2_trajs = dict(), dict()
         maneuver_constraints = self.maneuver_constraints
         for manv,manv_constr in maneuver_constraints['agent_1']['maneuvers'].items():
@@ -347,7 +359,7 @@ class TreeBuilder:
         self.file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
         agent1_init_vel = maneuver_constraints['agent_1']['agent_state'].velocity
         agent2_init_vel = maneuver_constraints['agent_2']['agent_state'].velocity
-        time_horizon = 6
+        time_horizon = self.horizon
         acts = Actions(maneuver_constraints)
         acts.generate_actions(init_time,agent1_init_vel,agent2_init_vel,time_horizon,True)
         #acts.insert_interaction_data()
@@ -432,8 +444,8 @@ class TreeBuilder:
         
     
     def build_final_trajectories(self,maneuver_constraints):
-        time_interval_axes = [[(0,2)], [(0,4),(2,2)]]
-        #time_interval_axes = [[(0,4)]]
+        time_interval_axes = [[(0,int(1/self.freq))], [(0,int(2*int(1/self.freq))),(int(1/self.freq),int(1/self.freq))]]
+        #time_interval_axes = [[(0,int(2*int(1/self.freq)))]]
         for time_intervals in time_interval_axes:
             state_lattics = self.get_current_states(time_intervals,maneuver_constraints)
             for ts,ts_v in state_lattics.items():
@@ -448,11 +460,9 @@ class TreeBuilder:
                             act = Actions(maneuver_constraints)
                             generating_manv_l = [x for x in maneuver_constraints[ag]['maneuvers'].keys() if x != manv]
                             for generating_manv in generating_manv_l:
-                                horizon = 6 - ts
+                                step_horizon = self.horizon - ts
                                 parent_traj_id = init_st[4]
-                                if ag == 'agent_2' and (ts == 4 or ts ==2) and generating_manv == 'wait':
-                                    brk = 1
-                                trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, horizon)
+                                trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, step_horizon)
                                 self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
                                 print('generating',ag,'time',ts,'manv',generating_manv,ct,'/',N)
                                 print(' '.join([str(_k)+':'+str(len(_v)) for _k,_v in trajs[generating_manv].items()]))
@@ -461,6 +471,10 @@ class TreeBuilder:
     def build_complete_tree(self,maneuver_constraints):
         self.build_initial_reachability_states(maneuver_constraints)
         self.build_final_trajectories(maneuver_constraints)
+        
+    def __init__(self,freq=None):
+        self.freq = 0.5 if freq is None else freq
+        self.horizon = int(3/self.freq)
 
 
 
@@ -472,18 +486,19 @@ class Node:
     progress_ctr = 0
     tree_size = 0
     
-    def print_Node(self,last_decision_level):
+    def print_Node(self,last_decision_level,results):
         node_result = {'mspe':False,'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
         if self.level == last_decision_level:
             if hasattr(self, 'emp_path') and self.emp_path:
-                next_emp_node = None
+                '''
                 for n in self.children:
                     if hasattr(n, 'emp_path') and n.emp_path:
                         next_emp_node = n
                         break
-                ag1_emp_trajl = next_emp_node.path_from_root['agent_1'].get_last().length
-                ag2_emp_trajl = next_emp_node.path_from_root['agent_2'].get_last().length
-                if hasattr(next_emp_node, 'on_mspe') and np.any(next_emp_node.onmspe):
+                '''
+                ag1_emp_trajl = self.path_from_root['agent_1'].get_last().length
+                ag2_emp_trajl = self.path_from_root['agent_2'].get_last().length
+                if hasattr(self, 'on_mspe') and np.any(self.on_mspe):
                     node_result['mspe'] = True
                 else:
                     node_result['mspe'] = False
@@ -492,59 +507,80 @@ class Node:
                     node_result['ag1_nac'] = self.automata_strategy_info['agent_1']['nac_auto_gamma']
                     node_result['ag2_ac'] = self.automata_strategy_info['agent_2']['ac_auto_gamma']
                     node_result['ag2_nac'] = self.automata_strategy_info['agent_2']['nac_auto_gamma']
-                if hasattr(self, 'auto_strategy_response'):
-                    ag1_resp = self.auto_strategy_response['agent_1'][0][:,0]
-                    ag1_resp_min = self.auto_strategy_response['agent_1'][1][:,0]
+                if hasattr(self.parent, 'auto_strategy_response'):
+                    ag1_resp = self.parent.auto_strategy_response['agent_1'][0][:,0]
+                    ag1_resp_min = self.parent.auto_strategy_response['agent_1'][1][:,0]
                     for i,resp in enumerate(ag1_resp):
                         if  min(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']) <= ag1_emp_trajl <= max(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']):
                             node_result['ag1_auto_resp'].append(i)
-                    ag2_resp = self.auto_strategy_response['agent_2'][0][0,:]
-                    ag2_resp_min = self.auto_strategy_response['agent_2'][1][0,:]
+                    ag2_resp = self.parent.auto_strategy_response['agent_2'][0][0,:]
+                    ag2_resp_min = self.parent.auto_strategy_response['agent_2'][1][0,:]
                     for i,resp in enumerate(ag2_resp):
                         if  min(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']) <= ag2_emp_trajl <= max(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']):
                             node_result['ag2_auto_resp'].append(i) 
+                if hasattr(self.parent, 'robust_response'):
+                    ag1_resp = self.parent.robust_response['agent_1'][:,0]
+                    for i,resp in enumerate(ag1_resp):
+                        if  min(ag1_resp[i].veh_eq_acts) <= ag1_emp_trajl <= max(ag1_resp[i].veh_eq_acts):
+                            node_result['ag1_robust'].append(i)
+                    ag2_resp = self.parent.robust_response['agent_2'][:,0]
+                    for i,resp in enumerate(ag2_resp):
+                        if  min(ag2_resp[i].peds_eq_acts) <= ag2_emp_trajl <= max(ag2_resp[i].peds_eq_acts):
+                            node_result['ag2_robust'].append(i) 
+                
                 print_str = [str(self.level)]
                 for k,v in node_result.items():
                     print_str.append(k+':'+str(v))
                 print(' '.join(print_str))
+                if self.level not in results:
+                    results[self.level] = []
+                results[self.level].append({'node_result':node_result,'node':self})
                     
         else:
             if not self.is_leaf: 
                 for c in self.children:
-                    c.print_Node(last_decision_level)
-                if hasattr(self, 'emp_path') and self.emp_path:
-                    next_emp_node = None
-                    for n in self.children:
-                        if hasattr(n, 'emp_path') and n.emp_path:
-                            next_emp_node = n
-                            break
-                    ag1_emp_trajl = next_emp_node.path_from_root['agent_1'].get_last().length
-                    ag2_emp_trajl = next_emp_node.path_from_root['agent_2'].get_last().length
-                    if hasattr(next_emp_node, 'on_mspe') and np.any(next_emp_node.on_mspe):
-                        node_result['mspe'] = True
-                    else:
-                        node_result['mspe'] = False
-                    if self.automata_strategy_info is not None:
-                        node_result['ag1_ac'] = self.automata_strategy_info['agent_1']['ac_auto_gamma'],
-                        node_result['ag1_nac'] = self.automata_strategy_info['agent_1']['nac_auto_gamma']
-                        node_result['ag2_ac'] = self.automata_strategy_info['agent_2']['ac_auto_gamma']
-                        node_result['ag2_nac'] = self.automata_strategy_info['agent_2']['nac_auto_gamma']
-                    if hasattr(self, 'auto_strategy_response'):
-                        ag1_resp = self.auto_strategy_response['agent_1'][0][:,0]
-                        ag1_resp_min = self.auto_strategy_response['agent_1'][1][:,0]
-                        for i,resp in enumerate(ag1_resp):
-                            if  min(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']) <= ag1_emp_trajl <= max(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']):
-                                node_result['ag1_auto_resp'].append(i)
-                        ag2_resp = self.auto_strategy_response['agent_2'][0][0,:]
-                        ag2_resp_min = self.auto_strategy_response['agent_2'][1][0,:]
-                        for i,resp in enumerate(ag2_resp):
-                            if  min(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']) <= ag2_emp_trajl <= max(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']):
-                                node_result['ag2_auto_resp'].append(i) 
+                    c.print_Node(last_decision_level,results)
+                if not self.is_root:
+                    if hasattr(self, 'emp_path') and self.emp_path:
+                        ag1_emp_trajl = self.path_from_root['agent_1'].get_last().length
+                        ag2_emp_trajl = self.path_from_root['agent_2'].get_last().length
+                        if hasattr(self, 'on_mspe') and np.any(self.on_mspe):
+                            node_result['mspe'] = True
+                        else:
+                            node_result['mspe'] = False
+                        if self.automata_strategy_info is not None:
+                            node_result['ag1_ac'] = self.automata_strategy_info['agent_1']['ac_auto_gamma'],
+                            node_result['ag1_nac'] = self.automata_strategy_info['agent_1']['nac_auto_gamma']
+                            node_result['ag2_ac'] = self.automata_strategy_info['agent_2']['ac_auto_gamma']
+                            node_result['ag2_nac'] = self.automata_strategy_info['agent_2']['nac_auto_gamma']
+                        if hasattr(self.parent, 'auto_strategy_response'):
+                            ag1_resp = self.parent.auto_strategy_response['agent_1'][0][:,0]
+                            ag1_resp_min = self.parent.auto_strategy_response['agent_1'][1][:,0]
+                            for i,resp in enumerate(ag1_resp):
+                                if  min(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']) <= ag1_emp_trajl <= max(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']):
+                                    node_result['ag1_auto_resp'].append(i)
+                            ag2_resp = self.parent.auto_strategy_response['agent_2'][0][0,:]
+                            ag2_resp_min = self.parent.auto_strategy_response['agent_2'][1][0,:]
+                            for i,resp in enumerate(ag2_resp):
+                                if  min(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']) <= ag2_emp_trajl <= max(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']):
+                                    node_result['ag2_auto_resp'].append(i) 
+                        if hasattr(self.parent, 'robust_response'):
+                            ag1_resp = self.parent.robust_response['agent_1'][:,0]
+                            for i,resp in enumerate(ag1_resp):
+                                if  min(ag1_resp[i].veh_eq_acts) <= ag1_emp_trajl <= max(ag1_resp[i].veh_eq_acts):
+                                    node_result['ag1_robust'].append(i)
+                            ag2_resp = self.parent.robust_response['agent_2'][:,0]
+                            for i,resp in enumerate(ag2_resp):
+                                if  min(ag2_resp[i].peds_eq_acts) <= ag2_emp_trajl <= max(ag2_resp[i].peds_eq_acts):
+                                    node_result['ag2_robust'].append(i) 
                 
-                    print_str = [str(self.level)]
-                    for k,v in node_result.items():
-                        print_str.append(k+':'+str(v))
-                    print(' '.join(print_str))    
+                        print_str = [str(self.level)]
+                        for k,v in node_result.items():
+                            print_str.append(k+':'+str(v))
+                        print(' '.join(print_str))  
+                        if self.level not in results:
+                            results[self.level] = []
+                        results[self.level].append({'node_result':node_result,'node':self})
         '''        
         if self.level == last_decision_level:
             if all(x==[x.manv for x in self.actions['agent_1']][0] for x in [x.manv for x in self.actions['agent_1']]):
@@ -577,15 +613,17 @@ class Node:
                 print(self._ext_id,ag1_alleq,ag2_alleq,self.level, self.auto_strategy_response['agent_1'][0][2,2]['traj_l'] if 'agent_1' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].veh_eq_acts[0] if self.equilibrium_solutions[2,2] is not None and self.equilibrium_solutions[2,2][0] is not None else 'None', self.robust_response['agent_1'][2][0].veh_eq_acts[0] if self.robust_response is not None and 'agent_1' in self.robust_response else 'None',
                   self.auto_strategy_response['agent_2'][0][2,2]['traj_l'] if 'agent_2' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].peds_eq_acts[0] if self.equilibrium_solutions[2,2] is not None else 'None', self.robust_response['agent_2'][2][0].peds_eq_acts[0] if self.robust_response is not None and 'agent_2' in self.robust_response else 'None')
         '''
-    def __init__(self,level, path_from_root,_ext_id):
+    def __init__(self,level, path_from_root,_ext_id,tree_link):
         self.level = level
         self.path_from_root = path_from_root
+        self._tree_link = tree_link
         self._ext_id = _ext_id
+        self.freq = self._tree_link.freq
     
     def load(self,file_id, traj_cache = None):
         if traj_cache is None:
             traj_cache = dict()
-            for x in [(0,0,2),(0,2,4),(2,2,4)]:
+            for x in [(0,0,int(1/self.freq)),(0,int(1/self.freq),int(2*int(1/self.freq))),(int(1/self.freq),int(1/self.freq),int(2*int(1/self.freq)))]:
                 traj_cache[x] = TrajectoryCache(init_time=x[0],time_range=(x[1],x[2]),ag_type=None,file_id=file_id)
         
         if not self.is_root:
@@ -649,9 +687,17 @@ class Node:
     def children(self):
         return self._children
     
+    @property
+    def parent(self):
+        return self._parent
+    
     @children.setter
     def children(self, value):
         self._children = value
+        
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
     
     
     def size(self,last_decision_level):
@@ -673,73 +719,44 @@ class GameTree:
     
     counter = 1
     
-    def __init__(self,file_id):
+    def __init__(self,file_id,freq=None):
         self.file_id = file_id
+        self.freq = freq if freq is not None else 0.5
+        self.horizon = int(3/self.freq)
         
     
-    def _process_zero_change_tree(self,level_nodes_6s):
-        v_tcache_4_6 = TrajectoryCache(init_time=0,time_range=(0,6),ag_type='agent_1',file_id=self.file_id)
-        p_tcache_4_6 = TrajectoryCache(init_time=0,time_range=(0,6),ag_type='agent_2',file_id=self.file_id)
-        _ext_id = GameTree.counter
-        self.root = Node(0,None,_ext_id)
-        GameTree.counter += 1
-        self.root.children = []
+      
         
-        
-        
-        
-    def _process_two_change_tree(self,level_nodes_xs,x,level_nodes_6s):
-        v_tcache_4_6 = TrajectoryCache(init_time=x,time_range=(x,6),ag_type='agent_1',file_id=self.file_id)
-        p_tcache_4_6 = TrajectoryCache(init_time=x,time_range=(x,6),ag_type='agent_2',file_id=self.file_id)
-        _ext_id = GameTree.counter
-        self.root = Node(0,None,_ext_id)
-        GameTree.counter += 1
-        
-        for n4s,n4 in level_nodes_xs.items():
-            level_nodes_xs[n4s].children = []
-            if n4s[0][-1] in level_nodes_6s['agent_1'] and n4s[1][-1] in level_nodes_6s['agent_2']:
-                _children_info = list(itertools.product(level_nodes_6s['agent_1'][n4s[0][-1]], level_nodes_6s['agent_2'][n4s[1][-1]]))
-                n6 = []
-                for _c in _children_info:
-                    vtf = TrajectoryFragment(time_range=(x,6),traj_id=_c[0][-2],manv=_c[0][0],manv_mode=_c[0][1],init_time=_c[0][-3])
-                    ptf = TrajectoryFragment(time_range=(x,6),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3])
-                    vtf.load(self.file_id,v_tcache_4_6.traj_cache)
-                    ptf.load(self.file_id,p_tcache_4_6.traj_cache)
-                    _ext_id = GameTree.counter
-                    nd = Node(6,{'agent_1':vtf, 'agent_2':ptf},_ext_id)
-                    GameTree.counter += 1
-                    n6.append(nd)
-                for _n in n6:
-                    _n.children = None
-                level_nodes_xs[n4s].children += n6
-            if len(level_nodes_xs[n4s].children) == 0:
-                level_nodes_xs[n4s].children = None
-        self.root.children = list(level_nodes_xs.values())
+    
         
     def _process_three_change_tree(self,level_nodes_2s,level_nodes_4s,level_nodes_6s):
         v_tcache_4_6, p_tcache_4_6 = dict(), dict()
-        v_tcache_4_6[(4,4,6)] = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='agent_1',file_id=self.file_id)
-        p_tcache_4_6[(4,4,6)] = TrajectoryCache(init_time=4,time_range=(4,6),ag_type='agent_2',file_id=self.file_id)
-        v_tcache_4_6[(2,4,6)] = TrajectoryCache(init_time=2,time_range=(4,6),ag_type='agent_1',file_id=self.file_id)
-        p_tcache_4_6[(2,4,6)] = TrajectoryCache(init_time=2,time_range=(4,6),ag_type='agent_2',file_id=self.file_id)
-        v_tcache_4_6[(0,4,6)] = TrajectoryCache(init_time=0,time_range=(4,6),ag_type='agent_1',file_id=self.file_id)
-        p_tcache_4_6[(0,4,6)] = TrajectoryCache(init_time=0,time_range=(4,6),ag_type='agent_2',file_id=self.file_id)
+        v_tcache_4_6[(int(2*int(1/self.freq)),int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=int(2*int(1/self.freq)),time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(int(2*int(1/self.freq)),int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=int(2*int(1/self.freq)),time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_2',file_id=self.file_id)
+        v_tcache_4_6[(int(1/self.freq),int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=int(1/self.freq),time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(int(1/self.freq),int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=int(1/self.freq),time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_2',file_id=self.file_id)
+        v_tcache_4_6[(0,int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=0,time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(0,int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=0,time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_2',file_id=self.file_id)
         _ext_id = GameTree.counter
-        self.root = Node(0,None,_ext_id)
+        self.root = Node(0,None,_ext_id,self)
+        self.root.parent = None
         GameTree.counter += 1
         
         for s_path,n in level_nodes_2s.items():
             n_children = []
+            n.parent = self.root
             for n4s,n4 in level_nodes_4s.items():
                 if s_path[0][0] == n4s[0][0] and s_path[1][0] == n4s[1][0]:
+                    
                     level_nodes_4s[n4s].children = []
+                    level_nodes_4s[n4s].parent = n
                     n_children.append(level_nodes_4s[n4s])
                     if n4s[0][-1] in level_nodes_6s['agent_1'] and n4s[1][-1] in level_nodes_6s['agent_2']:
                         _children_info = list(itertools.product(level_nodes_6s['agent_1'][n4s[0][-1]], level_nodes_6s['agent_2'][n4s[1][-1]]))
                         n6 = []
                         for _c in _children_info:
-                            vtf = TrajectoryFragment(time_range=(4,6),traj_id=_c[0][-2],manv=_c[0][0],manv_mode=_c[0][1],init_time=_c[0][-3])
-                            ptf = TrajectoryFragment(time_range=(4,6),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3])
+                            vtf = TrajectoryFragment(time_range=(int(2*int(1/self.freq)),self.horizon),traj_id=_c[0][-2],manv=_c[0][0],manv_mode=_c[0][1],init_time=_c[0][-3],horizon=self.horizon)
+                            ptf = TrajectoryFragment(time_range=(int(2*int(1/self.freq)),self.horizon),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3],horizon=self.horizon)
                             vtf.load(self.file_id,v_tcache_4_6)
                             ptf.load(self.file_id,p_tcache_4_6)
                             _newvtf = copy.deepcopy(level_nodes_4s[n4s].path_from_root['agent_1'])
@@ -749,11 +766,13 @@ class GameTree:
                             _newptf.is_last = False
                             _newptf.get_last().next_fragment = ptf
                             _ext_id = GameTree.counter
-                            nd = Node(6,{'agent_1':_newvtf, 'agent_2':_newptf},_ext_id)
+                            nd = Node(self.horizon,{'agent_1':_newvtf, 'agent_2':_newptf},_ext_id,self)
                             GameTree.counter += 1
+                            nd.parent = level_nodes_4s[n4s]
                             n6.append(nd)
                         for _n in n6:
                             _n.children = None
+                        
                         level_nodes_4s[n4s].children += n6
                     if len(level_nodes_4s[n4s].children) == 0:
                         level_nodes_4s[n4s].children = None
@@ -768,12 +787,12 @@ class GameTree:
     def build_tree(self):
         print('building lattice nodes...')
         start_time = time.time()
-        level_nodes_2s = self.build_level_nodes(2)
-        level_nodes_4s = self.build_level_nodes(4)
-        level_nodes_6s = self.build_level_nodes(6)
+        level_nodes_2s = self.build_level_nodes(int(1/self.freq))
+        level_nodes_4s = self.build_level_nodes(int(2*int(1/self.freq)))
+        level_nodes_6s = self.build_level_nodes(self.horizon)
         if len(level_nodes_2s) == 0 or len(level_nodes_4s) == 0 or len(level_nodes_6s['agent_1'])==0 or len(level_nodes_6s['agent_2'])==0:
             raise UnsupportedLatticeException(l2_size=len(level_nodes_2s), l4_size=len(level_nodes_4s), l6_size=(len(level_nodes_6s['agent_1']),len(level_nodes_6s['agent_2'])))
-        self.last_decision_level = 4
+        self.last_decision_level = int(2*int(1/self.freq))
         self._process_three_change_tree(level_nodes_2s, level_nodes_4s, level_nodes_6s)
         '''
         if len(level_nodes_2s) == 0 and len(level_nodes_4s) != 0:
@@ -804,10 +823,13 @@ class GameTree:
     
     def solve(self,eq_class):
         eq_class.solve(node = self.root,last_decision_level=self.last_decision_level)
-        eq_class.set_oneq_label(self)
+        if hasattr(eq_class, 'set_oneq_label'):
+            eq_class.set_oneq_label(self)
     
     def print_tree(self):
-        self.root.print_Node(6)
+        if not hasattr(self, 'results'):
+            self.results = dict()
+        self.root.print_Node(6,self.results)
     
     def build_level_nodes(self, level):
         conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
@@ -815,14 +837,15 @@ class GameTree:
         all_level_nodes = dict()
             
         def _getqstring(ag_type):
-            return "select MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X)*ABS(INIT_POS_X-X)+ABS(INIT_POS_Y-Y)*ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.INIT_TIME,TRAJECTORY_METADATA.TRAJ_ID,TRAJECTORY_METADATA.PARENT_TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME=4 AND TRAJECTORIES.TIME=2 \
+            start_time,one_step_t,two_step_t,three_step_t = 0,int(1/self.freq),int(2*int(1/self.freq)),self.horizon
+            return "select MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X)*ABS(INIT_POS_X-X)+ABS(INIT_POS_Y-Y)*ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.INIT_TIME,TRAJECTORY_METADATA.TRAJ_ID,TRAJECTORY_METADATA.PARENT_TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME="+str(two_step_t)+" AND TRAJECTORIES.TIME="+str(one_step_t)+" \
                         AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' \
                         UNION \
-                        select MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X)*ABS(INIT_POS_X-X)+ABS(INIT_POS_Y-Y)*ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.INIT_TIME,TRAJECTORY_METADATA.TRAJ_ID,TRAJECTORY_METADATA.PARENT_TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME=2 AND TRAJECTORIES.TIME=4 \
-                        AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.TRAJ_ID IN (select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.INIT_TIME=4) \
+                        select MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X)*ABS(INIT_POS_X-X)+ABS(INIT_POS_Y-Y)*ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.INIT_TIME,TRAJECTORY_METADATA.TRAJ_ID,TRAJECTORY_METADATA.PARENT_TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME="+str(one_step_t)+" AND TRAJECTORIES.TIME="+str(two_step_t)+" \
+                        AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.TRAJ_ID IN (select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.INIT_TIME="+str(two_step_t)+") \
                         UNION \
-                        select MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X)*ABS(INIT_POS_X-X)+ABS(INIT_POS_Y-Y)*ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.INIT_TIME,TRAJECTORY_METADATA.TRAJ_ID,TRAJECTORY_METADATA.PARENT_TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME=0 AND TRAJECTORIES.TIME=6 AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.TRAJ_ID IN (select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.INIT_TIME=2)"
-        if level == 6:
+                        select MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X)*ABS(INIT_POS_X-X)+ABS(INIT_POS_Y-Y)*ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.INIT_TIME,TRAJECTORY_METADATA.TRAJ_ID,TRAJECTORY_METADATA.PARENT_TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME=0 AND TRAJECTORIES.TIME="+str(three_step_t)+" AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.TRAJ_ID IN (select distinct PARENT_TRAJ_ID FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' AND TRAJECTORY_METADATA.INIT_TIME="+str(one_step_t)+")"
+        if level == self.horizon:
             c.execute(_getqstring('agent_1'))
             veh_res = c.fetchall()
             c.execute(_getqstring('agent_2'))
@@ -841,7 +864,7 @@ class GameTree:
                 if parent_traj_id not in veh_lattice_states:
                         veh_lattice_states[parent_traj_id] = []
                         
-                if veh_row[-3] == 4:
+                if veh_row[-3] == int(2*int(1/self.freq)):
                     if parent_traj_id not in latc_tracker_veh or ( math.sqrt(veh_row[3])-min(latc_tracker_veh[parent_traj_id], key=lambda x:abs(x-math.sqrt(veh_row[3]))) > lattice_dist_step_ag1 ):
                         if parent_traj_id not in latc_tracker_veh:
                             latc_tracker_veh[parent_traj_id] = []
@@ -854,7 +877,7 @@ class GameTree:
                 parent_traj_id = peds_row[-1] if peds_row[-1] is not None else peds_row[-2]
                 if parent_traj_id not in peds_lattice_states:
                         peds_lattice_states[parent_traj_id] = []
-                if peds_row[-3] == 4:
+                if peds_row[-3] == int(2*int(1/self.freq)):
                     if parent_traj_id not in latc_tracker_ped or ( math.sqrt(peds_row[3])-min(latc_tracker_ped[parent_traj_id], key=lambda x:abs(x-math.sqrt(peds_row[3]))) > lattice_dist_step_ag2 ):
                         if parent_traj_id not in latc_tracker_ped:
                             latc_tracker_ped[parent_traj_id] = []
@@ -877,7 +900,7 @@ class GameTree:
             veh_res = c.fetchall()
             veh_traj_info = {row[0]:(row[6],row[7],row[9]) for row in veh_res}
             
-            if level == 4:
+            if level == int(2*int(1/self.freq)):
                 ''' get the grandparent fragment info. Only level 4 has grandparent, and that starts from time 0 '''
                 q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 and TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_1'+"'"
                 c.execute(q_string)
@@ -892,7 +915,7 @@ class GameTree:
             c.execute(q_string)
             peds_res = c.fetchall()
             peds_traj_info = {row[0]:(row[6],row[7],row[9]) for row in peds_res}
-            if level == 4:
+            if level == int(2*int(1/self.freq)):
                 ''' get the grandparent fragment info. Only level 4 has grandparent, and that starts from time 0 '''
                 q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 and TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_2'+"'"
                 c.execute(q_string)
@@ -905,18 +928,18 @@ class GameTree:
             ct,N = 0,len(veh_res)*len(peds_res)
             for idx1,veh_row in enumerate(veh_res):
                 if veh_row[9] == 0:
-                    vtf1 = TrajectoryFragment(time_range = (0,2) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2])
-                    if level == 4:
-                        vtf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2])
+                    vtf1 = TrajectoryFragment(time_range = (0,int(1/self.freq)) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
+                    if level == int(2*int(1/self.freq)):
+                        vtf2 = TrajectoryFragment(time_range = (int(1/self.freq),int(2*int(1/self.freq))) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
                         vtf2.is_last = True
                         vtf1.next_fragment = vtf2
                     else:
                         vtf1.is_last = True
                 else:
                     ''' get the grandparent fragment '''
-                    vtf1 = TrajectoryFragment(time_range = (0,2) ,traj_id = veh_row[10] ,manv = veh_traj_info[veh_row[10]][0],manv_mode = veh_traj_info[veh_row[10]][1],init_time = veh_traj_info[veh_row[10]][2])
-                    if level == 4:
-                        vtf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2])
+                    vtf1 = TrajectoryFragment(time_range = (0,int(1/self.freq)) ,traj_id = veh_row[10] ,manv = veh_traj_info[veh_row[10]][0],manv_mode = veh_traj_info[veh_row[10]][1],init_time = veh_traj_info[veh_row[10]][2],horizon=self.horizon)
+                    if level == int(2*int(1/self.freq)):
+                        vtf2 = TrajectoryFragment(time_range = (int(1/self.freq),int(2*int(1/self.freq))) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
                         vtf2.is_last = True
                         vtf1.next_fragment = vtf2
                     else:
@@ -925,26 +948,26 @@ class GameTree:
                     ct += 1
                     #print('level',level,ct,'/',N)
                     if peds_row[9] == 0:
-                        ptf1 = TrajectoryFragment(time_range = (0,2) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2])
-                        if level == 4:
-                            ptf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2])
+                        ptf1 = TrajectoryFragment(time_range = (0,int(1/self.freq)) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
+                        if level == int(2*int(1/self.freq)):
+                            ptf2 = TrajectoryFragment(time_range = (int(1/self.freq),int(2*int(1/self.freq))) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
                             ptf2.is_last = True
                             ptf1.next_fragment = ptf2
                         else:
                             ptf1.is_last = True
                     else:
-                        ptf1 = TrajectoryFragment(time_range = (0,2) ,traj_id = peds_row[10] ,manv = peds_traj_info[peds_row[10]][0],manv_mode = peds_traj_info[peds_row[10]][1],init_time = peds_traj_info[peds_row[10]][2])
-                        if level == 4:
-                            ptf2 = TrajectoryFragment(time_range = (2,4) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2])
+                        ptf1 = TrajectoryFragment(time_range = (0,int(1/self.freq)) ,traj_id = peds_row[10] ,manv = peds_traj_info[peds_row[10]][0],manv_mode = peds_traj_info[peds_row[10]][1],init_time = peds_traj_info[peds_row[10]][2],horizon=self.horizon)
+                        if level == int(2*int(1/self.freq)):
+                            ptf2 = TrajectoryFragment(time_range = (int(1/self.freq),int(2*int(1/self.freq))) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
                             ptf2.is_last = True
                             ptf1.next_fragment = ptf2
                         else:
                             ptf1.is_last = True
                     _ext_id = GameTree.counter
-                    nd = Node(level,{'agent_1':vtf1, 'agent_2':ptf1}, _ext_id)
+                    nd = Node(level,{'agent_1':vtf1, 'agent_2':ptf1}, _ext_id,self)
                     GameTree.counter += 1
                     #nd.load()
-                    if level == 4:
+                    if level == int(2*int(1/self.freq)):
                         s_key = ((vtf1.traj_id,vtf2.traj_id),(ptf1.traj_id,ptf2.traj_id))
                         print(s_key,(vtf1.manv,vtf2.manv),(ptf1.manv,ptf2.manv))
                     else:
@@ -953,10 +976,54 @@ class GameTree:
                     all_level_nodes[s_key] = nd
                 
         return all_level_nodes
+    
+def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
+    scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts,freq=freq)
+    maneuver_constraints = scene_def.setup_trajectory_constraints()
+    if initialize_db:
+        tree_builder = TreeBuilder(freq)
+        tree_builder.build_complete_tree(maneuver_constraints)
+    
+    file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+    gt = GameTree(file_id,freq)
+    gt.build_tree()
+    type(gt.root).progress_ctr = 0
+    type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
+    m = MinDistanceGapModel(file_id,freq)
+    m.build_model()   
+    context = RunContext()
+    manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'track_speed'}}
+    context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True})
+    drassign_obj = AssignDistRanges()
+    drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
+    start_time = time.time()
+    eq_obj = SatisficingEquilibria(context)
+    gt.solve(eq_obj)
+    print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(RobustResponse(context))
+    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    gt.scene_def = scene_def
+    assign_emp_nodes(gt,gt.scene_def)
+    gt.print_tree()
+    plot_velocity_profiles(gt,scene_def,freq)
+    f=1
 
 def run_all_scenarios():
+    freq = 0.5
     initialize_db = True
     initialize_files = False
+    rerun_failed_files = False
+    failed_files = []
+    with open(rg_constants.FAILED_FILES_PATH,newline='\n') as csv_file:
+        sc_reader = csv.reader(csv_file, delimiter=',')
+        for row in sc_reader:
+            dbfile_id = row[0]
+            agent1_id = int(row[3])
+            agent2_id = int(row[4])
+            start_ts = float(row[5])
+            failed_files.append((dbfile_id,agent1_id,agent2_id,start_ts))
+            
     with open(rg_constants.SCENE_OUT_PATH,newline='\n') as csv_file:
         sc_reader = csv.reader(csv_file, delimiter=',')
         line_count = 0
@@ -965,27 +1032,32 @@ def run_all_scenarios():
                 if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
                     print('row',row,'processed...continuing')
                     continue
+            
             dbfile_id = row[0]
             agent1_id = int(row[3])
             agent2_id = int(row[4])
             start_ts = float(row[5])
+            if not rerun_failed_files:
+                if (dbfile_id,agent1_id,agent2_id,start_ts) in failed_files:
+                    print('row',row,'had failed...continuing')
+                    continue
             
             print('processing',dbfile_id,line_count+1,agent1_id,agent2_id)
             try:
-                scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts)
+                scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts,freq=freq)
                 if scene_def.time_crossed:
                     continue
                 maneuver_constraints = scene_def.setup_trajectory_constraints()
                 if initialize_db:
-                    tree_builder = TreeBuilder()
+                    tree_builder = TreeBuilder(freq)
                     tree_builder.build_complete_tree(maneuver_constraints)
                 
                 file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
-                gt = GameTree(file_id)
+                gt = GameTree(file_id,freq)
                 gt.build_tree()
                 type(gt.root).progress_ctr = 0
                 type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
-                m = MinDistanceGapModel(file_id)
+                m = MinDistanceGapModel(file_id,freq)
                 m.build_model()   
                 context = RunContext()
                 manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'track_speed'}}
@@ -1025,37 +1097,43 @@ def run_all_scenarios():
                     raise
                 '''
             line_count += 1
-            if line_count > 2:
-                break
+            
             
 
 
     
 def assign_emp_nodes(gt,scene_def):
     gt.root.emp_path = True
-    l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=2)
-    emp_2l = get_nearest_node(l2_nodes, scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[0])
-    for n2l in l2_nodes:
-        '''assign emp path value '''
-        if n2l._ext_id == emp_2l[0]:
-            n2l.emp_path = True
-            emp_4l = get_nearest_node(n2l.children, scene_def.agent1_emp_traj[1]-scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[1]-scene_def.agent2_emp_traj[0])
-            for n4l in n2l.children:
-                if n4l._ext_id == emp_4l[0]:
-                    n4l.emp_path = True
-                    emp_6l = get_nearest_node(n4l.children, scene_def.agent1_emp_traj[2]-scene_def.agent1_emp_traj[1], scene_def.agent2_emp_traj[2]-scene_def.agent2_emp_traj[1])
-                    for n6l in n4l.children:
-                        if n6l._ext_id == emp_6l[0]:
-                            n6l.emp_path = True
+    l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=int(1/gt.freq))
+    _path = []
+    if not (len(scene_def.agent1_emp_traj)==0 or len(scene_def.agent2_emp_traj)==0):
+        emp_2l = get_nearest_node(l2_nodes, scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[0])
+        for n2l in l2_nodes:
+            '''assign emp path value '''
+            if n2l._ext_id == emp_2l[0]:
+                n2l.emp_path = True
+                _path.append(n2l)
+                if len(scene_def.agent1_emp_traj) > 1 and n2l.children is not None:
+                    emp_4l = get_nearest_node(n2l.children, scene_def.agent1_emp_traj[1]-scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[1]-scene_def.agent2_emp_traj[0])
+                    for n4l in n2l.children:
+                        if n4l._ext_id == emp_4l[0]:
+                            n4l.emp_path = True
+                            _path.append(n4l)
+                            if len(scene_def.agent1_emp_traj) > 2 and n4l.children is not None:
+                                emp_6l = get_nearest_node(n4l.children, scene_def.agent1_emp_traj[2]-scene_def.agent1_emp_traj[1], scene_def.agent2_emp_traj[2]-scene_def.agent2_emp_traj[1])
+                                for n6l in n4l.children:
+                                    if n6l._ext_id == emp_6l[0]:
+                                        n6l.emp_path = True
+                                        _path.append(n6l)
+                                    else:
+                                        n6l.emp_path = False
                         else:
-                            n6l.emp_path = False
-                else:
-                    n4l.emp_path = False
+                            n4l.emp_path = False
+                f=1
+            else:
+                n2l.emp_path = False
             f=1
-        else:
-            n2l.emp_path = False
-        f=1
-        
+    print('empirical path assigned',str([(x.path_from_root['agent_1'].get_last().length,x.path_from_root['agent_2'].get_last().length) for x in _path]))
         
 
 def results_all_scenarios():
@@ -1064,20 +1142,181 @@ def results_all_scenarios():
         line_count = 0
         for row in sc_reader:
             if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
+                if os.path.isfile(os.path.join(rg_constants.RESULTS_FILES,'_'.join(row).replace('.',',')+'.results')):
+                    print('row',row,'processed...continuing')
+                    continue
+                print('row',row,'processing..')
                 dbfile_id = row[0]
                 agent1_id = int(row[3])
                 agent2_id = int(row[4])
                 start_ts = float(row[5])
-                scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=False,start_ts=start_ts)
+                #scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=False,start_ts=start_ts)
                 gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'))
-                gt.scene_def = scene_def
-                assign_emp_nodes(gt,scene_def)
+                assign_emp_nodes(gt,gt.scene_def)
                 gt.print_tree()
-                if line_count == 0:
-                    break
+                print('---------')
+                pickle_dump_to_dir(os.path.join(rg_constants.RESULTS_FILES,'_'.join(row).replace('.',',')+'.results'), gt.results)
                 line_count += 1
-            print('processing',dbfile_id,line_count+1,agent1_id,agent2_id)
             
 
+def plot_all_results():
+    hit_ct = {'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0}  
+    range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[]}
+    line_count = 0
+    resultfiles = [f for f in listdir(rg_constants.RESULTS_FILES) if isfile(join(rg_constants.RESULTS_FILES, f))]
+    for resfile_name in resultfiles:
+        res_info = all_utils.utils.pickle_load(os.path.join(rg_constants.RESULTS_FILES,resfile_name))   
+        line_count += 1
+        print(line_count)
+        for l,rl in res_info.items():
+            if l!= 6:
+                continue
+            for res in rl:
+                node_res = res['node_result']
+                no_expl = True
+                if (node_res['ag1_ac'] is not False or node_res['ag1_nac'] is not False) and (node_res['ag2_ac'] is not False or node_res['ag2_nac'] is not False):
+                    if node_res['ag1_ac'] is not False and  len(node_res['ag1_ac']) == 1:
+                        node_res['ag1_ac'] = node_res['ag1_ac'][0]
+                    if node_res['ag2_ac'] is not False and  len(node_res['ag2_ac']) == 1:
+                        node_res['ag2_ac'] = node_res['ag2_ac'][0]
+                    if node_res['ag1_nac'] is not False and len(node_res['ag1_nac']) == 1:
+                        node_res['ag1_nac'] = node_res['ag1_nac'][0]
+                    if node_res['ag2_nac'] is not False and len(node_res['ag2_nac']) == 1:
+                        node_res['ag2_nac'] = node_res['ag2_nac'][0]
+                        
+                    if node_res['ag1_ac'] is not False:
+                        hit_ct['ac'] += .5
+                        range_var['ac'].append(len(np.arange(min(node_res['ag1_ac']), max(node_res['ag1_ac'])+.5,.5)))
+                    else:
+                        hit_ct['nac'] += .5
+                        range_var['nac'].append(len(np.arange(min(node_res['ag1_nac']), max(node_res['ag1_nac'])+.5,.5)))
+                    if node_res['ag2_ac'] is not False:
+                        hit_ct['ac'] += .5
+                        range_var['ac'].append(len(np.arange(min(node_res['ag2_ac']), max(node_res['ag2_ac'])+.5,.5)))
+                    else:
+                        hit_ct['nac'] += .5
+                        range_var['nac'].append(len(np.arange(min(node_res['ag2_nac']), max(node_res['ag2_nac'])+.5,.5)))
+                if len(node_res['ag1_auto_resp']) > 0:
+                    hit_ct['auto_resp'] += 0.5
+                    range_var['auto_resp'].append(len(node_res['ag1_auto_resp']))
+                if len(node_res['ag2_auto_resp']) > 0:
+                    hit_ct['auto_resp'] += 0.5
+                    range_var['auto_resp'].append(len(node_res['ag2_auto_resp']))
+                if len(node_res['ag1_robust']) > 0:
+                    hit_ct['robust'] += 0.5
+                    range_var['robust'].append(len(node_res['ag1_robust']))
+                if len(node_res['ag2_robust']) > 0:
+                    hit_ct['robust'] += 0.5
+                    range_var['robust'].append(len(node_res['ag2_robust']))
+                if node_res['mspe'] is not False:
+                    hit_ct['mspe'] += 1
+                
+                if (node_res['ag1_ac'] is not False or node_res['ag1_nac'] is not False or len(node_res['ag1_auto_resp']) > 0 or len(node_res['ag1_robust']) > 0) and  \
+                    (node_res['ag2_ac'] is not False or node_res['ag2_nac'] is not False or len(node_res['ag2_auto_resp']) > 0 or len(node_res['ag2_robust']) > 0):
+                        no_expl = False
+                if node_res['mspe'] is not False:
+                    no_expl = False
+                if no_expl:
+                    hit_ct['no_exp'] += 1
+    plt.figure()
+    plt.bar(np.arange(len(hit_ct)), list(hit_ct.values()), align='center', alpha=0.5)
+    plt.xticks(np.arange(len(hit_ct)), list(hit_ct.keys()))
+    '''
+    fig = plt.figure()
+    ax = fig.add_axes([0, 0, 1, 1])
+    bp = ax.boxplot(list(range_var.values()))
+    ax.set_yticklabels(list(range_var.keys()))
+    '''
+    for k,v in range_var.items():
+        print(k,np.mean(v))
+    plt.show()
+                  
+def plot_velocity_profiles(gt,scene_def,freq):
+    ag1_vel_profiles,ag2_vel_profiles = {'1':[],'2':[],'3':[]},{'1':[],'2':[],'3':[]}
+    ag1_emp_profiles,ag2_emp_profiles = {'1':[],'2':[],'3':[]},{'1':[],'2':[],'3':[]}
+    l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=int(1/gt.freq))
+    if not (len(scene_def.agent1_emp_traj)==0 or len(scene_def.agent2_emp_traj)==0):
+        emp_2l = get_nearest_node(l2_nodes, scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[0])
+        for n2l in l2_nodes:
+            '''assign emp path value '''
+            if n2l._ext_id == emp_2l[0]:
+                n2l.emp_path = True
+                
+                if len(scene_def.agent1_emp_traj) > 1 and n2l.children is not None:
+                    emp_4l = get_nearest_node(n2l.children, scene_def.agent1_emp_traj[1]-scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[1]-scene_def.agent2_emp_traj[0])
+                    for n4l in n2l.children:
+                        if n4l._ext_id == emp_4l[0]:
+                            n4l.emp_path = True
+                            
+                            if len(scene_def.agent1_emp_traj) > 2 and n4l.children is not None:
+                                emp_6l = get_nearest_node(n4l.children, scene_def.agent1_emp_traj[2]-scene_def.agent1_emp_traj[1], scene_def.agent2_emp_traj[2]-scene_def.agent2_emp_traj[1])
+                                for n6l in n4l.children:
+                                    if n6l._ext_id == emp_6l[0]:
+                                        n6l.emp_path = True
+                                        ag1_emp_profiles['3'].append([x[3] for x in n6l.path_from_root['agent_1'].loaded_traj])
+                                        ag2_emp_profiles['3'].append([x[3] for x in n6l.path_from_root['agent_2'].loaded_traj])
+                                    else:
+                                        n6l.emp_path = False
+                        else:
+                            n4l.emp_path = False
+                f=1
+            else:
+                n2l.emp_path = False
+            f=1
+    
+    if not (len(scene_def.agent1_emp_traj)==0 or len(scene_def.agent2_emp_traj)==0):
+        emp_2l = get_nearest_node(l2_nodes, scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[0])
+        for n2l in l2_nodes:
+            '''assign emp path value '''
+            #ag1_vel_profiles['1'].append([x[3] for x in n2l.path_from_root['agent_1'].loaded_traj_frag])
+            #ag2_vel_profiles['1'].append([x[3] for x in n2l.path_from_root['agent_2'].loaded_traj_frag])
+            if n2l._ext_id == emp_2l[0]:
+                n2l.emp_path = True
+            else:
+                n2l.emp_path = False
+            if len(scene_def.agent1_emp_traj) > 1 and n2l.children is not None:
+                    emp_4l = get_nearest_node(n2l.children, scene_def.agent1_emp_traj[1]-scene_def.agent1_emp_traj[0], scene_def.agent2_emp_traj[1]-scene_def.agent2_emp_traj[0])
+                    for n4l in n2l.children:
+                        if n4l._ext_id == emp_4l[0]:
+                            n4l.emp_path = True
+                        else:
+                            n4l.emp_path = False
+                        #ag1_vel_profiles['2'].append([x[3] for x in n4l.path_from_root['agent_1'].get_last().loaded_traj_frag])
+                        #ag2_vel_profiles['2'].append([x[3] for x in n4l.path_from_root['agent_2'].get_last().loaded_traj_frag])
+                        if len(scene_def.agent1_emp_traj) > 2 and n4l.children is not None:
+                            emp_6l = get_nearest_node(n4l.children, scene_def.agent1_emp_traj[2]-scene_def.agent1_emp_traj[1], scene_def.agent2_emp_traj[2]-scene_def.agent2_emp_traj[1])
+                            for n6l in n4l.children:
+                                if n6l._ext_id == emp_6l[0]:
+                                    n6l.emp_path = True
+                                    
+                                else:
+                                    n6l.emp_path = False
+                                ag1_vel_profiles['3'].append([x[3] for x in n6l.path_from_root['agent_1'].loaded_traj])
+                                ag2_vel_profiles['3'].append([x[3] for x in n6l.path_from_root['agent_2'].loaded_traj])
+    plt.figure()
+    for k,v in ag1_vel_profiles.items():
+        _l = int(k)
+        for vp in v:
+            plt.plot(np.linspace(start=0, stop=int(_l*int(1/freq)), num=len(vp)).tolist(),vp,color=lighten_color('red',0.5))
+    for k,v in ag1_emp_profiles.items():
+        _l = int(k)
+        for vp in v:
+            plt.plot(np.linspace(start=0, stop=int(_l*int(1/freq)), num=len(vp)).tolist(),vp,color='black')
+    plt.title('ag-1')
+    plt.figure()
+    for k,v in ag2_vel_profiles.items():
+        _l = int(k)
+        for vp in v:
+            plt.plot(np.linspace(start=0, stop=int(_l*int(1/freq)), num=len(vp)).tolist(),vp,color=lighten_color('blue',0.5))
+    for k,v in ag2_emp_profiles.items():
+        _l = int(k)
+        for vp in v:
+            plt.plot(np.linspace(start=0, stop=int(_l*int(1/freq)), num=len(vp)).tolist(),vp,color='black')
+    
+    plt.title('ag-2')
+    plt.show()
+    f=1
 if __name__ == '__main__':
+    #run_one_scenario(dbfile_id='769',agent1_id=8,agent2_id=23,start_ts=5.338667,initialize_db=True,freq=1)
     run_all_scenarios()
+    

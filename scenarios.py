@@ -132,9 +132,12 @@ def can_exclude(file_id,agent_id,task,direction,curr_time):
     tol = 2
     if prev_signal is not None:
         if prev_signal[0] == 'R':
+            '''
             if (prev_signal[1]==0 or curr_time-prev_signal[1] > 2):
                 if (next_signal is None) or (next_signal is not None and next_signal[1]-curr_time >2):
                     excl = True
+            '''
+            excl = True
     gate_map = {'L_N_S':(130,18),
                 'L_W_E':(34,132),
                 'L_E_W':(131,63),
@@ -161,6 +164,19 @@ def left_turn_interaction_scenarios():
         constants.CURRENT_FILE_ID = file_id
         conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
         c = conn.cursor()
+        q_string = "select * from v_TIMES"
+        c.execute(q_string)
+        res = c.fetchall()
+        entry_exit_times = {row[0]:(row[1],row[2]) for row in res}
+        q_string = "select * from TRAJECTORIES_0"+str(file_id)+"_EXT WHERE ASSIGNED_SEGMENT IN ('ln_s_-2' ,'ln_s_-1','ln_w_-2' ,'ln_w_-1') ORDER BY TRACK_ID,TIME"
+        c.execute(q_string)
+        res = c.fetchall()
+        exit_lane_entry_time =  dict()
+        for row in res:
+            if row[0] not in exit_lane_entry_time:
+                exit_lane_entry_time[row[0]] = row[1]
+        
+        
         q_string = "SELECT * from TRAJECTORIES_0"+str(file_id)+"_EXT ORDER BY TIME"
         c.execute(q_string)
         res = c.fetchall()
@@ -175,7 +191,7 @@ def left_turn_interaction_scenarios():
             else:
                 if row[0] not in [x[0] for x in scenario_dict[row[1]]]:
                     scenario_dict[row[1]].append((row[0],row[2]))
-        agent_entries = dict()
+        agent_entries = []
         
         #print(scenario_dict.keys())
         for k in list(scenario_dict.keys()):
@@ -186,9 +202,9 @@ def left_turn_interaction_scenarios():
             el_ctr = Counter([x[1] for x in scenario_dict[k]])
             #print(k)
             for rtag in scenario_dict[k]:
-                if ((rtag[1] == 'prep-turn_s' and el_ctr['exec-turn_s']==0) or \
+                if ((rtag[1] == 'prep-turn_s' and el_ctr['prep-turn_s']==1 and el_ctr['exec-turn_s']==0) or \
                     (rtag[1] == 'exec-turn_s' and el_ctr['ln_w_-2']==0 and el_ctr['ln_w_-1']==0) or \
-                    (rtag[1] == 'ln_s_1' and el_ctr['prep-turn_s']==0 and el_ctr['exec-turn_s']==0) or\
+                    (rtag[1] == 'ln_s_1' and el_ctr['ln_s_1'] == 1 and el_ctr['prep-turn_s']==0 and el_ctr['exec-turn_s']==0) or\
                     (rtag[1] == 'ln_w_-1' and el_ctr['ln_w_-1']==1) or (rtag[1] == 'ln_w_-2' and el_ctr['ln_w_-2']==1)):
                     if not can_exclude(file_id, rtag[0],'lt','L_S_W', k):
                         for stag in scenario_dict[k]:
@@ -203,12 +219,18 @@ def left_turn_interaction_scenarios():
                                     (stag[1] == 'l_n_s_l' and el_ctr['l_n_s_r']==0 and el_ctr['ln_s_-2']==0 and el_ctr['ln_s_-1']==0))
                                     '''
                                     if not can_exclude(file_id, stag[0], 'st', 'L_N_S', k):
-                                        if rtag[0] not in agent_entries:
-                                            agent_entries[rtag[0]] = [(stag[0],k)]
-                                        else:
-                                            if stag[0] not in [x[0] for x in agent_entries[rtag[0]]]:
-                                                agent_entries[rtag[0]].append((stag[0],k))
-                                        #print((rtag[0],stag[0],k,'lt_st_s_e'))  
+                                        if (rtag[0],stag[0]) not in [(x[0],x[1]) for x in agent_entries]:
+                                            if rtag[0] in [x[0] for x in agent_entries]:
+                                                _l = [x[0] for x in agent_entries]
+                                                last_index = len(_l) - 1 - _l[::-1].index(rtag[0])
+                                                if agent_entries[last_index][1] not in exit_lane_entry_time:
+                                                    continue
+                                                else:
+                                                    ra_ex_time = exit_lane_entry_time[agent_entries[last_index][1]]
+                                            else:
+                                                ra_ex_time = entry_exit_times[stag[0]][0]-2
+                                            agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'se'))
+                                            print((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'se'))  
                 elif ((rtag[1] == 'prep-turn_w' and el_ctr['exec-turn_w']==0) or \
                     (rtag[1] == 'exec-turn_w' and el_ctr['ln_n_-2']==0 and el_ctr['ln_n_-1']==0) or \
                     (rtag[1] == 'ln_w_1' and el_ctr['prep-turn_w']==0 and el_ctr['exec-turn_w']==0) or\
@@ -224,17 +246,27 @@ def left_turn_interaction_scenarios():
                                     if rtag[0]==14 and (stag[0]==6 or stag[0]==4 or stag[0]==12):
                                         f=1
                                     if not can_exclude(file_id, stag[0],'st','L_E_W', k):
-                                        if rtag[0] not in agent_entries:
-                                            agent_entries[rtag[0]] = [(stag[0],k)]
-                                        else:
-                                            if stag[0] not in [x[0] for x in agent_entries[rtag[0]]]:
-                                                agent_entries[rtag[0]].append((stag[0],k))
-                                        #print((rtag[0],stag[0],k,'lt_st_w_n'))
+                                        if (rtag[0],stag[0]) not in [(x[0],x[1]) for x in agent_entries]:
+                                            if rtag[0] in [x[0] for x in agent_entries]:
+                                                _l = [x[0] for x in agent_entries]
+                                                last_index = len(_l) - 1 - _l[::-1].index(rtag[0])
+                                                if agent_entries[last_index][1] not in exit_lane_entry_time:
+                                                    continue
+                                                else:
+                                                    ra_ex_time = exit_lane_entry_time[agent_entries[last_index][1]]
+                                            else:
+                                                ra_ex_time = entry_exit_times[stag[0]][0]-2
+                                            agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'wn'))
+                                            print((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'wn'))
         #for entr in agent_entries:
         #    print(entr)
         conn.close()
         print('Total',file_id, len(agent_entries))
         tot += len(agent_entries)
+        with open(rg_constants.SCENE_OUT_PATH, mode='a') as scene_file:
+            sc_writer = csv.writer(scene_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            for entr in agent_entries:
+                sc_writer.writerow([file_id,'lt',entr[3],entr[0],entr[1],entr[2]])
     print('grand total',tot)
     
     
@@ -285,4 +317,4 @@ def right_turn_scenarios():
 
 
 if __name__ == '__main__':
-    right_turn_interaction_scenarios()    
+    left_turn_interaction_scenarios()    

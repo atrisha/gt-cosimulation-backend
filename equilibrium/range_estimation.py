@@ -103,32 +103,32 @@ class RangeEstimationModel:
         
     def predict(self,inp,manv_map):
         X,manvX = [x[0] for x in inp], [x[1] for x in inp]
-        assert 1 <= len(X) <= 2, "Length of X should be 1 or 2 with 2,4 sec distances in meters" 
+        assert 1 <= len(X) <= 3, "Length of X should be 1 or 2 or 3 with 2,4,6 sec distances in meters" 
         val_2sec_idx, val_4sec_idx, val_6sec_idx = None, None, None
         pred_range_2s, pred_range_4s, pred_range_6s = None, None, None
         val_2sec = round(X[0],1)
         prediction_details = dict()
-        
-        try:
-            wait_model = self.model_2sec[(manv_map['wait'],manv_map['wait'],manv_map['wait'])]
-            proceed_model = self.model_2sec[(manv_map['proceed'],manv_map['proceed'],manv_map['proceed'])]
-            val_2sec_idx_wait = 0 if val_2sec-wait_model[0][0]==0 or wait_model[0][1]==wait_model[0][0] else int((val_2sec-wait_model[0][0]) / (wait_model[0][1]-wait_model[0][0]) * (wait_model[1].shape[0]-1))
-            val_2sec_idx_proceed = 0 if val_2sec-proceed_model[0][0]==0 or proceed_model[0][1]==proceed_model[0][0] else int((val_2sec-proceed_model[0][0]) / (proceed_model[0][1]-proceed_model[0][0]) * (proceed_model[1].shape[0]-1))
-            if val_2sec_idx_wait>0 and val_2sec_idx_wait<wait_model[1].shape[0] and wait_model[1][val_2sec_idx_wait,0] != np.inf and wait_model[1][val_2sec_idx_wait,1] != -np.inf:
-                pred_range_2s_wait = wait_model[1][val_2sec_idx_wait]
-            else:
-                pred_range_2s_wait = self._interpolate(val_2sec_idx_wait, wait_model[1])
-            if val_2sec_idx_proceed>0 and val_2sec_idx_proceed<proceed_model[1].shape[0] and proceed_model[1][val_2sec_idx_proceed,0] != np.inf and proceed_model[1][val_2sec_idx_proceed,1] != -np.inf:
-                pred_range_2s_proceed = proceed_model[1][val_2sec_idx_proceed]
-            else:
-                pred_range_2s_proceed = self._interpolate(val_2sec_idx_proceed, proceed_model[1])
-            prediction_details = {manv_map['wait'] : pred_range_2s_wait, 
-                                       manv_map['proceed'] : pred_range_2s_proceed}
-        except KeyError:
-            ''' some of the manuver combination may not have a model so assign nans'''
-            prediction_details = {manv_map['wait'] : (np.nan,np.nan), 
-                                       manv_map['proceed'] : (np.nan,np.nan)}
-        if len(X) > 1:
+        if len(X) == 1:
+            try:
+                wait_model = self.model_2sec[(manv_map['wait'],manv_map['wait'],manv_map['wait'])]
+                proceed_model = self.model_2sec[(manv_map['proceed'],manv_map['proceed'],manv_map['proceed'])]
+                val_2sec_idx_wait = 0 if val_2sec-wait_model[0][0]==0 or wait_model[0][1]==wait_model[0][0] else int((val_2sec-wait_model[0][0]) / (wait_model[0][1]-wait_model[0][0]) * (wait_model[1].shape[0]-1))
+                val_2sec_idx_proceed = 0 if val_2sec-proceed_model[0][0]==0 or proceed_model[0][1]==proceed_model[0][0] else int((val_2sec-proceed_model[0][0]) / (proceed_model[0][1]-proceed_model[0][0]) * (proceed_model[1].shape[0]-1))
+                if val_2sec_idx_wait>0 and val_2sec_idx_wait<wait_model[1].shape[0] and wait_model[1][val_2sec_idx_wait,0] != np.inf and wait_model[1][val_2sec_idx_wait,1] != -np.inf:
+                    pred_range_2s_wait = wait_model[1][val_2sec_idx_wait]
+                else:
+                    pred_range_2s_wait = self._interpolate(val_2sec_idx_wait, wait_model[1])
+                if val_2sec_idx_proceed>0 and val_2sec_idx_proceed<proceed_model[1].shape[0] and proceed_model[1][val_2sec_idx_proceed,0] != np.inf and proceed_model[1][val_2sec_idx_proceed,1] != -np.inf:
+                    pred_range_2s_proceed = proceed_model[1][val_2sec_idx_proceed]
+                else:
+                    pred_range_2s_proceed = self._interpolate(val_2sec_idx_proceed, proceed_model[1])
+                prediction_details = {manv_map['wait'] : pred_range_2s_wait, 
+                                           manv_map['proceed'] : pred_range_2s_proceed}
+            except KeyError:
+                ''' some of the manuver combination may not have a model so assign nans'''
+                prediction_details = {manv_map['wait'] : (np.nan,np.nan), 
+                                           manv_map['proceed'] : (np.nan,np.nan)}
+        elif len(X) == 2:
             try:
                 val_4sec = round(X[1],1)
                 wait_model = self.model_4sec[(manvX[0],manv_map['wait'],manv_map['wait'])]
@@ -153,6 +153,32 @@ class RangeEstimationModel:
                 ''' some of the manuver combination may not have a model so assign nans'''
                 prediction_details = {manv_map['wait'] : (np.nan,np.nan), 
                                            manv_map['proceed'] : (np.nan,np.nan)}
+        elif len(X) == 3:
+            try:
+                val_6sec = round(X[2],1)
+                wait_model = self.model_6sec[(manvX[0],manvX[1],manv_map['wait'])]
+                proceed_model = self.model_6sec[(manvX[0],manvX[1],manv_map['proceed'])]
+                val_6sec_idx_wait = 0 if val_6sec-wait_model[0][0]==0 or wait_model[0][1]==wait_model[0][0] else int((val_6sec-wait_model[0][0]) / (wait_model[0][1]-wait_model[0][0]) * (wait_model[1].shape[0]-1))
+                val_6sec_idx_proceed = 0 if val_6sec-proceed_model[0][0]==0 or proceed_model[0][1]==proceed_model[0][0]  else int((val_6sec-proceed_model[0][0]) / (proceed_model[0][1]-proceed_model[0][0]) * (proceed_model[1].shape[0]-1))
+                if val_6sec_idx_wait>0 and val_6sec_idx_wait<wait_model[1].shape[0] and wait_model[1][val_6sec_idx_wait,0] != np.inf and wait_model[1][val_6sec_idx_wait,1] != -np.inf:
+                    pred_range_6s_wait = wait_model[1][val_6sec_idx_wait]
+                else:
+                    pred_range_6s_wait = self._interpolate(val_6sec_idx_wait, wait_model[1])
+                if val_6sec_idx_proceed>0 and val_6sec_idx_proceed<proceed_model[1].shape[0] and proceed_model[1][val_6sec_idx_proceed,0] != np.inf and proceed_model[1][val_6sec_idx_proceed,1] != -np.inf:
+                    pred_range_6s_proceed = proceed_model[1][val_6sec_idx_proceed]
+                else:
+                    pred_range_6s_proceed = self._interpolate(val_6sec_idx_proceed, proceed_model[1])
+                if not np.isnan(prediction_details[manv_map['wait']][0]):
+                    prediction_details = {manv_map['wait'] : (min(pred_range_6s_wait[0],prediction_details[manv_map['wait']][0]), min(pred_range_6s_wait[1],prediction_details[manv_map['wait']][1])), 
+                                           manv_map['proceed'] : (min(pred_range_6s_proceed[0],prediction_details[manv_map['proceed']][0]), min(pred_range_6s_proceed[1],prediction_details[manv_map['proceed']][1]))}
+                else:
+                    prediction_details = {manv_map['wait'] : pred_range_6s_wait, 
+                                           manv_map['proceed'] : pred_range_6s_proceed}
+            except KeyError:
+                ''' some of the manuver combination may not have a model so assign nans'''
+                prediction_details = {manv_map['wait'] : (np.nan,np.nan), 
+                                           manv_map['proceed'] : (np.nan,np.nan)}
+        
         '''
         if len(X) > 2:
             val_6sec = round(X[2],1)
@@ -182,8 +208,10 @@ class RangeEstimationModel:
     
 class MinDistanceGapModel:
     
-    def __init__(self, file_id):
+    def __init__(self, file_id,freq):
         self.file_id = file_id
+        self.freq = freq if freq is not None else 0.5
+        self.horizon = int(3/self.freq)
     
     
     def build_agent_trajectories(self,ag_type):
@@ -196,9 +224,9 @@ class MinDistanceGapModel:
         c.execute(q_string)
         res = c.fetchall()
         for row in res:
-            tf0_2 = TrajectoryFragment((0,2),row[0],row[1],row[2],0)
-            tf2_4 = TrajectoryFragment((2,4),row[0],row[1],row[2],0)
-            tf4_6 = TrajectoryFragment((4,6),row[0],row[1],row[2],0)
+            tf0_2 = TrajectoryFragment((0,int(1/self.freq)),row[0],row[1],row[2],0,self.horizon)
+            tf2_4 = TrajectoryFragment((int(1/self.freq),int(2*int(1/self.freq))),row[0],row[1],row[2],0,self.horizon)
+            tf4_6 = TrajectoryFragment((int(2*int(1/self.freq)),self.horizon),row[0],row[1],row[2],0,self.horizon)
             tf2_4.next_fragment = tf4_6
             tf0_2.next_fragment = tf2_4
             #trajectories.append(tf0_2)
@@ -225,9 +253,9 @@ class MinDistanceGapModel:
             frag_1_init_time = 0
             frag_2_init_time = row[20]
             if frag_2_init_time == 2:
-                tf0_2 = TrajectoryFragment((0,2),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time)
-                tf2_4 = TrajectoryFragment((2,4),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time)
-                tf4_6 = TrajectoryFragment((4,6),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time)
+                tf0_2 = TrajectoryFragment((0,int(1/self.freq)),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
+                tf2_4 = TrajectoryFragment((int(1/self.freq),int(2*int(1/self.freq))),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
+                tf4_6 = TrajectoryFragment((int(2*int(1/self.freq)),self.horizon),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
                 tf2_4.next_fragment = tf4_6
                 tf0_2.next_fragment = tf2_4
                 #trajectories.append(tf0_2)
@@ -236,9 +264,9 @@ class MinDistanceGapModel:
                 else:
                     trajectories[(frag_1_manv,frag_2_manv,frag_2_manv)].append(tf0_2) 
             else:
-                tf0_2 = TrajectoryFragment((0,2),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time)
-                tf2_4 = TrajectoryFragment((2,4),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time)
-                tf4_6 = TrajectoryFragment((4,6),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time)
+                tf0_2 = TrajectoryFragment((0,int(1/self.freq)),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
+                tf2_4 = TrajectoryFragment((int(1/self.freq),int(2*int(1/self.freq))),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
+                tf4_6 = TrajectoryFragment((int(2*int(1/self.freq)),self.horizon),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
                 tf2_4.next_fragment = tf4_6
                 tf0_2.next_fragment = tf2_4
                 #trajectories.append(tf0_2)
@@ -253,9 +281,9 @@ class MinDistanceGapModel:
         c.execute(q_string)
         res = c.fetchall()
         for row in res:
-            tf0_2 = TrajectoryFragment((0,2),row[0],row[1],row[2],row[9])
-            tf2_4 = TrajectoryFragment((2,4),row[3],row[4],row[5],row[10])
-            tf4_6 = TrajectoryFragment((4,6),row[6],row[7],row[8],row[11])
+            tf0_2 = TrajectoryFragment((0,int(1/self.freq)),row[0],row[1],row[2],row[9],self.horizon)
+            tf2_4 = TrajectoryFragment((int(1/self.freq),int(2*int(1/self.freq))),row[3],row[4],row[5],row[10],self.horizon)
+            tf4_6 = TrajectoryFragment((int(2*int(1/self.freq)),self.horizon),row[6],row[7],row[8],row[11],self.horizon)
             tf2_4.next_fragment = tf4_6
             tf0_2.next_fragment = tf2_4
             #trajectories.append(tf0_2)
@@ -272,7 +300,7 @@ class MinDistanceGapModel:
             adequate coverage of maneuver combinations 
         '''
         traj_cache = dict()
-        for x in [(0,0,2),(0,2,4),(0,4,6),(2,2,4),(2,4,6),(4,4,6)]:
+        for x in [(0,0,int(1/self.freq)),(0,int(1/self.freq),int(2*int(1/self.freq))),(0,int(2*int(1/self.freq)),self.horizon),(int(1/self.freq),int(1/self.freq),int(2*int(1/self.freq))),(int(1/self.freq),int(2*int(1/self.freq)),self.horizon),(int(2*int(1/self.freq)),int(2*int(1/self.freq)),self.horizon)]:
             traj_cache[x] = TrajectoryCache(init_time=x[0],time_range=(x[1],x[2]),ag_type=None,file_id=self.file_id)
         for m,t in pedestrian_trajectories.items():
             if len(t) > 50:

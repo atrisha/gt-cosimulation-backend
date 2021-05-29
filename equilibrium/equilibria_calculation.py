@@ -274,42 +274,7 @@ class AutoStrategyResponse(Equilibria):
         
     
 class RobustResponse(Equilibria):
-    
-    def set_oneq_label(self,gt):
-        l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=2)
-        for i in np.arange(gt.root.equilibrium_solutions.shape[0]):
-            for j in np.arange(gt.root.equilibrium_solutions.shape[1]):
-                eq_2l = []
-                for eq in gt.root.equilibrium_solutions[i,j]:
-                    ag1_tl_range = eq.veh_eq_acts
-                    ag2_tl_range = eq.peds_eq_acts
-                    eq_2l += get_within_node(l2_nodes, ag1_tl_range, ag2_tl_range)
-                for n2l in l2_nodes:
-                    if not hasattr(n2l, 'on_mspe'):
-                        n2l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
-                    if n2l._ext_id in eq_2l:
-                        n2l.on_mspe[i,j] = True
-                        eq_4l = []
-                        for eq in n2l.equilibrium_solutions[i,j]:
-                            ag1_4ltl_range = eq.veh_eq_acts
-                            ag2_4ltl_range = eq.peds_eq_acts
-                            eq_4l += get_within_node(n2l.children, ag1_4ltl_range, ag2_4ltl_range)
-                        for n4l in n2l.children:
-                            if not hasattr(n4l, 'on_mspe'):
-                                n4l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
-                            if n4l._ext_id in eq_4l:
-                                n4l.on_mspe[i,j] = True
-                                eq_6l = []
-                                for eq in n4l.equilibrium_solutions[i,j]:
-                                    ag1_6ltl_range = eq.veh_eq_acts
-                                    ag2_6ltl_range = eq.peds_eq_acts
-                                    eq_6l += get_within_node(n4l.children, ag1_6ltl_range, ag2_6ltl_range)
-                                for n6l in n4l.children:
-                                    if not hasattr(n6l, 'on_mspe'):
-                                        n6l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
-                                        if n6l._ext_id in eq_6l:
-                                            n6l.on_mspe[i,j] = True
-    
+
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
         if len(node.children) > 9:
             f=1
@@ -393,7 +358,7 @@ class RobustResponse(Equilibria):
 class SatisficingEquilibria(Equilibria):
     
     def set_oneq_label(self,gt):
-        l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=2)
+        l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=int(1/gt.freq))
         for i in np.arange(gt.root.equilibrium_solutions.shape[0]):
             for j in np.arange(gt.root.equilibrium_solutions.shape[1]):
                 eq_2l = []
