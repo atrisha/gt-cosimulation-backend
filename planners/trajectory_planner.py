@@ -75,7 +75,11 @@ class ProceedTrajectoryConstraints(TrajectoryConstraints):
     should be sample length as the waypoints
     '''
     def __init__(self,waypoints,waypoint_vel_sampling_range):
-        assert len(waypoints) == len(waypoint_vel_sampling_range) , "Lengths should be same"
+        try:
+            assert len(waypoints) == len(waypoint_vel_sampling_range) , "Lengths should be same"
+        except AssertionError:
+            f=1
+            raise
         init_vel = waypoint_vel_sampling_range[0][0]
         TrajectoryConstraints.__init__(self,init_vel, waypoints)
         waypoint_vel_sampling_range = [x for idx,x in enumerate(waypoint_vel_sampling_range) if idx not in self.dup_indxs]
@@ -202,10 +206,12 @@ class TrajectoryPlanner:
     
     
     def __init__(self,traj_constr_obj, maneuver, mode, horizon):
+        '''
         if maneuver in WAIT_MANEUVERS and isinstance(traj_constr_obj, ProceedTrajectoryConstraints):
             raise("Wait maneuvers should be passed WaitTrajectoryConstraints object")
         if maneuver not in WAIT_MANEUVERS and isinstance(traj_constr_obj, WaitTrajectoryConstraints):
             raise("Proceed maneuvers should be passed ProceedTrajectoryConstraints object")
+        '''
         self.traj_constr_obj = traj_constr_obj
         self.v0 = traj_constr_obj.init_vel
         self.vel_pts = None
@@ -249,7 +255,7 @@ class TrajectoryPlanner:
                     #prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
                     prev_valid_prop = (s_pts[i]-s_pts[prev_valid_indx])/(s_pts[nxt_valid_indx]-s_pts[prev_valid_indx])
                     intpl_v = prev_valid_prop*vp[prev_valid_indx] + (1-prev_valid_prop)*vp[nxt_valid_indx]
-                    _v.append(intpl_v)
+                    _v.append(max(0.1,intpl_v))
             self.all_velocity_profiles.append(_v)
         
     
@@ -351,119 +357,135 @@ class TrajectoryPlanner:
     def generate_trajectory(self,all=None):
         horizon = self.horizon
         self.generate_path()
-        if self.maneuver not in WAIT_MANEUVERS:
+        if self.v0 == 0 and isinstance(self.traj_constr_obj, WaitTrajectoryConstraints):
+            yaw = math.atan2(self.cs_y.derivative()(0), self.cs_x.derivative()(0))
+            traj = []
+            all_trajs = dict()
+            for tx in np.arange(0,self.horizon+0.1,.1):
+                traj.append((tx,self.traj_constr_obj.waypoints[0][0],self.traj_constr_obj.waypoints[0][1],0,0,0,0,yaw))
+            all_trajs['aggressive'] = list(traj)
+            all_trajs['normal'] = list(traj)
+            return all_trajs
+        if isinstance(self.traj_constr_obj, ProceedTrajectoryConstraints):
             self.build_velocity_lattice(self.traj_constr_obj.waypoint_vel_sampling_range)
-        if self.maneuver in ['turn','walk','track_speed']:
+        if isinstance(self.traj_constr_obj, ProceedTrajectoryConstraints):
             self.generate_proceed_velocity_profiles()
         else:
             self.generate_wait_velocity_profiles()
         
         
-        if not all:
-            traj = []
-            self.cs_v = self.velocity_profiles[self.mode][0]['func']
-            self.cs_a = self.cs_v.derivative(1)
-            self.cs_j = self.cs_v.derivative(2)
-        
-            stopped_traj = False
-            time_st = np.arange(0,horizon+.1,.1)
-            for t in time_st:
-                if t <= horizon:
-                    #s = self.t_s_map[t]
-                    #s = self.cs_v(t) * t + 0.5 * abs(self.cs_a(t)) * t**2
-                    s = scipy.integrate.quad(self.cs_v,0,t)[0]
-                    if self.maneuver in ['wait'] and self.cs_v(t)==0:
-                        stopped_traj = True
-                    if not stopped_traj:
-                        yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
-                        traj.append((t,self.cs_x(s/self.arcl),self.cs_y(s/self.arcl),self.cs_v(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl),yaw))
-                    else:
-                        traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7]))
-                else:
-                    break
-            max_vel,max_acc,max_jerk,max_lat_acc = max([x[3] for x in traj]),max([x[4] for x in traj]),max([x[5] for x in traj]),max([x[6] for x in traj])
-            if self.print_console:
-                print('max_vel:',max_vel)
-                print('max_acc:',max_acc)
-                print('max_lat_acc:',max_lat_acc)
-                print('max_jerk:',max_jerk)
-            
-            if self.show_plots:
-                time_ax_x = np.linspace(start=0, stop=time_st[-1], num=100)
-                plt.figure()
-                plt.plot(time_ax_x,[self.cs_v(x) for x in time_ax_x])
-                plt.title('velocity')
-                plt.figure()
-                plt.plot(time_ax_x,[self.cs_a(x) for x in time_ax_x])
-                plt.title('acceleration')
-                plt.figure()
-                plt.plot(time_ax_x,[self.cs_j(x) for x in time_ax_x])
-                plt.title('jerk')
-                plt.figure()
-                plt.plot([x[0] for x in traj],[x[6] for x in traj])
-                plt.title('lateral acc')
-                plt.show()
-            self.trajectory = [(x[0],x[1],x[2]) for x in traj]
-        else:
-            all_trajs = dict()
-            if self.show_plots:
-                plt.figure()
-            for m,v_profiles in self.velocity_profiles.items():
-                for vp_idx,v in enumerate(v_profiles):
-                    traj = []
-                    self.cs_v = v['func']
-                    
-                    if isinstance(self.cs_v, TriangulationCurve):
-                        ord = 3
-                    else:
-                        ord = len(self.cs_v._eval_args)-1
-                    if ord > 1:
-                        self.cs_a = self.cs_v.derivative(1)
-                    else:
-                        self.cs_a = lambda x : 0
-                    if ord > 2:
-                        self.cs_j = self.cs_v.derivative(2)
-                    else:
-                        self.cs_j = lambda x : 0
+        all_trajs = dict()
+        if self.show_plots:
+            plt.figure()
+        for m,v_profiles in self.velocity_profiles.items():
+            for vp_idx,v in enumerate(v_profiles):
+                if all is not None and not all and vp_idx != int(len(v_profiles)//2):
+                    continue  
+                traj = []
+                self.cs_v = v['func']
                 
-                    stopped_traj = False
-                    time_st = np.arange(0,horizon+.1,.1)
-                    if 'target vels' in v:
-                        err = self.cs_v(0) - v['target vels'][0]
-                        v_corrected = lambda x : self.cs_v(x) - err
-                    else:
-                        v_corrected = self.cs_v
-                    err_x = self.cs_x(0) - self.centerline[0][0]
-                    x_corrected = lambda x : self.cs_x(x) - err_x
-                    err_y = self.cs_y(0) - self.centerline[0][1]
-                    y_corrected = lambda x : self.cs_y(x) - err_y
-                    for t in time_st:
-                        if t <= horizon:
-                            #s = self.t_s_map[t]
-                            #s = self.cs_v(t) * t + 0.5 * abs(self.cs_a(t)) * t**2
-                            s = scipy.integrate.quad(self.cs_v,0,t)[0]
-                            if self.maneuver in ['wait'] and self.cs_v(t)==0:
-                                stopped_traj = True
-                            if not stopped_traj:
-                                #math.atan2(self.cs_y(s/self.arcl)-traj[-1][2], self.cs_x(s/self.arcl)-traj[-1][1])
-                                yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
-                                traj.append((t,x_corrected(s/self.arcl),y_corrected(s/self.arcl),v_corrected(t),self.cs_a(t),self.cs_j(t),(self.cs_v(t)**2)*self.curvature(s/self.arcl),yaw))
-                            else:
-                                traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7]))
+                if isinstance(self.cs_v, TriangulationCurve):
+                    ord = 3
+                else:
+                    ord = len(self.cs_v._eval_args)-1
+                if ord > 1:
+                    self.cs_a = self.cs_v.derivative(1)
+                else:
+                    self.cs_a = lambda x : 0
+                if ord > 2:
+                    self.cs_j = self.cs_v.derivative(2)
+                else:
+                    self.cs_j = lambda x : 0
+            
+                stopped_traj = False
+                time_st = np.arange(0,horizon+.1,.1)
+                if 'target vels' in v:
+                    err = self.cs_v(0) - v['target vels'][0]
+                    v_corrected = lambda x : self.cs_v(x) - err
+                else:
+                    v_corrected = self.cs_v
+                err_x = self.cs_x(0) - self.centerline[0][0]
+                x_corrected = lambda x : self.cs_x(x) - err_x
+                err_y = self.cs_y(0) - self.centerline[0][1]
+                y_corrected = lambda x : self.cs_y(x) - err_y
+                self.x_corrected = x_corrected
+                self.y_corrected = y_corrected
+        
+                for t in time_st:
+                    if t <= horizon:
+                        #s = self.t_s_map[t]
+                        #s = self.cs_v(t) * t + 0.5 * abs(self.cs_a(t)) * t**2
+                        s = scipy.integrate.quad(v_corrected,0,t)[0]
+                        if isinstance(self.traj_constr_obj, WaitTrajectoryConstraints) and v_corrected(t)==0:
+                            stopped_traj = True
+                        if not stopped_traj:
+                            #math.atan2(self.cs_y(s/self.arcl)-traj[-1][2], self.cs_x(s/self.arcl)-traj[-1][1])
+                            yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
+                            traj.append((t,x_corrected(s/self.arcl),y_corrected(s/self.arcl),v_corrected(t),self.cs_a(t),self.cs_j(t),(v_corrected(t)**2)*self.curvature(s/self.arcl),yaw))
                         else:
-                            break
-                    #max_vel,max_acc,max_jerk,max_lat_acc = max([x[3] for x in traj]),max([x[4] for x in traj]),max([x[5] for x in traj]),max([x[6] for x in traj])
-                    if self.print_console:
-                        print('added trajectory',self.maneuver,self.mode,vp_idx,'max_acc',v['max_acc'],'max_vel',v['max_vel'],'length:',math.hypot(traj[-1][1]-traj[0][1], traj[-1][2]-traj[0][2]))
-                    if m not in all_trajs:
-                        all_trajs[m] = []
-                    all_trajs[m].append(traj)
-                    if self.show_plots:
-                        plt.plot([x[0] for x in traj], [x[3] for x in traj])
-            self.all_trajectories = all_trajs
-            if self.show_plots:
-                plt.title("all velocity profles")
-                plt.show()
+                            traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7]))
+                    else:
+                        break
+                #max_vel,max_acc,max_jerk,max_lat_acc = max([x[3] for x in traj]),max([x[4] for x in traj]),max([x[5] for x in traj]),max([x[6] for x in traj])
+                if self.print_console:
+                    print('added trajectory',self.maneuver,self.mode,vp_idx,'max_acc',v['max_acc'],'max_vel',v['max_vel'],'length:',math.hypot(traj[-1][1]-traj[0][1], traj[-1][2]-traj[0][2]))
+                if m not in all_trajs:
+                    all_trajs[m] = []
+                all_trajs[m].append(traj)
+                if self.show_plots:
+                    plt.plot([x[0] for x in traj], [x[3] for x in traj])
+        self.all_trajectories = all_trajs
+        if self.show_plots:
+            plt.title("all velocity profles")
+            plt.show()
+                
+    def generate_extended_trajectory(self,ag_traj_frag,manv_map):
+        manv = ag_traj_frag.get_last().manv
+        term_v = ag_traj_frag.get_last().loaded_traj_frag[-1][3]
+        past_traj_l = ag_traj_frag.get_last().total_length
+        horizon = self.horizon
+        
+        ext_velocity_profiles = {manv:[]}
+        
+        if manv_map[manv] == 'wait':
+            for stop_horizon in [1,2,3]:
+                tcs = TriangulationCurve(term_v,stop_horizon,1)
+                all_v_profiles = [(stop_horizon,x) for x in tcs.curves()]
+                for st_h,v in all_v_profiles:
+                    ext_velocity_profiles[manv].append({'func':v})
+        else:
+            f = lambda x : term_v
+            ext_velocity_profiles[manv].append({'func':f})
+        all_trajs = []
+        for m,v_profiles in ext_velocity_profiles.items():
+            for vp_idx,v in enumerate(v_profiles):
+                traj = []
+                ext_cs_v = v['func']
+                stopped_traj = False
+                time_st = np.arange(0,horizon+.1,.1)
+                x_corrected = self.x_corrected if hasattr(self, 'x_corrected') else self.cs_x
+                y_corrected = self.y_corrected if hasattr(self, 'y_corrected') else self.cs_y
+                for t in time_st:
+                    if t <= horizon:
+                        #s = self.t_s_map[t]
+                        #s = self.cs_v(t) * t + 0.5 * abs(self.cs_a(t)) * t**2
+                        s = scipy.integrate.quad(ext_cs_v,0,t)[0]
+                        if manv_map[manv] in ['wait'] and ext_cs_v(t)==0:
+                            stopped_traj = True
+                        if not stopped_traj:
+                            #math.atan2(self.cs_y(s/self.arcl)-traj[-1][2], self.cs_x(s/self.arcl)-traj[-1][1])
+                            traj.append((t,x_corrected((past_traj_l + s)/self.arcl),y_corrected((past_traj_l + s)/self.arcl)))
+                        else:
+                            if len(traj) > 0:
+                                traj.append((t,traj[-1][1],traj[-1][2]))
+                            else:
+                                traj.append((t, ag_traj_frag.get_last().loaded_traj_frag[-1][1], ag_traj_frag.get_last().loaded_traj_frag[-1][2]))
+                    else:
+                        break
+                all_trajs.append(traj)
+        return all_trajs
+                
+    
         
 class VehicleTrajectoryPlanner(TrajectoryPlanner):
     
@@ -541,8 +563,11 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                     if t+time_pts[-1] <= time_pts[-1]:
                         brk=1
                     time_pts.append(t+time_pts[-1])
-                    
-            self.cs_t_s = CubicSpline(time_pts,s_pts)
+            try:        
+                self.cs_t_s = CubicSpline(time_pts,s_pts)
+            except ValueError:
+                f=1
+                raise
             
             if time_pts[-1] > 8:
                 brk = 1

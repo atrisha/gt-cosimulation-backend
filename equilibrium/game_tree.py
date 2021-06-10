@@ -29,12 +29,13 @@ import os
 import traceback
 import sys
 from equilibrium.range_estimation import MinDistanceGapModel
-from equilibrium.gametree_objects import TrajectoryCache, TrajectoryFragment
+from equilibrium.gametree_objects import TrajectoryCache, TrajectoryFragment, UnsupportedAgentObservationException,UnsupportedLatticeException
 from code_utils.code_util_objects import RunContext
 import all_utils
 import copy
 from os import listdir
 import matplotlib.pyplot as plt
+from rg_visualizer import UniWeberAnalytics
 from os.path import isfile, join
 
 
@@ -43,10 +44,7 @@ from equilibrium.automata_strategies import *
 
 show_plots = False
 
-class UnsupportedLatticeException(Exception):
-    def __init__(self,l2_size,l4_size,l6_size):
-        message = 'l2:'+str(l2_size)+', l4:'+str(l4_size)+', l6:'+str(l6_size)            
-        super().__init__(message)
+
         
 
 '''
@@ -145,18 +143,26 @@ class Actions:
     
     def generate_actions(self,init_time,agent1_init_vel,agent2_init_vel,horizon, insert_into_db = False):
         agent1_trajs,agent2_trajs = dict(), dict()
+        agent1_trajs,agent2_trajs = dict(), dict()
         maneuver_constraints = self.maneuver_constraints
+        maneuver_constraints['motion_info'] = dict()
         for manv,manv_constr in maneuver_constraints['agent_1']['maneuvers'].items():
             manv_constr.set_limit_constraints()
             agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
             agent1_motion.generate_trajectory(True)
             agent1_trajs[manv] = agent1_motion.all_trajectories
+            if 'agent_1' not in maneuver_constraints['motion_info']:
+                maneuver_constraints['motion_info']['agent_1'] = dict()
+            maneuver_constraints['motion_info']['agent_1'][manv] = agent1_motion
         
         for manv,manv_constr in maneuver_constraints['agent_2']['maneuvers'].items():
             manv_constr.set_limit_constraints()
             agent2_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
             agent2_motion.generate_trajectory(True)
             agent2_trajs[manv] = agent2_motion.all_trajectories
+            if 'agent_2' not in maneuver_constraints['motion_info']:
+                maneuver_constraints['motion_info']['agent_2'] = dict()
+            maneuver_constraints['motion_info']['agent_2'][manv] = agent2_motion
         
         file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
         
@@ -361,7 +367,7 @@ class TreeBuilder:
         agent2_init_vel = maneuver_constraints['agent_2']['agent_state'].velocity
         time_horizon = self.horizon
         acts = Actions(maneuver_constraints)
-        acts.generate_actions(init_time,agent1_init_vel,agent2_init_vel,time_horizon,True)
+        acts.generate_actions(init_time,agent1_init_vel,agent2_init_vel,time_horizon,self.initialize_db)
         #acts.insert_interaction_data()
         
     def get_current_states(self,time_intervals,maneuver_constraints):
@@ -463,7 +469,8 @@ class TreeBuilder:
                                 step_horizon = self.horizon - ts
                                 parent_traj_id = init_st[4]
                                 trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, step_horizon)
-                                self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
+                                if self.initialize_db:
+                                    self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
                                 print('generating',ag,'time',ts,'manv',generating_manv,ct,'/',N)
                                 print(' '.join([str(_k)+':'+str(len(_v)) for _k,_v in trajs[generating_manv].items()]))
                 
@@ -472,7 +479,8 @@ class TreeBuilder:
         self.build_initial_reachability_states(maneuver_constraints)
         self.build_final_trajectories(maneuver_constraints)
         
-    def __init__(self,freq=None):
+    def __init__(self,freq,initialize_db):
+        self.initialize_db = initialize_db
         self.freq = 0.5 if freq is None else freq
         self.horizon = int(3/self.freq)
 
@@ -487,7 +495,7 @@ class Node:
     tree_size = 0
     
     def print_Node(self,last_decision_level,results):
-        node_result = {'mspe':False,'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
+        node_result = {'uspe':[],'mspe':[],'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
         if self.level == last_decision_level:
             if hasattr(self, 'emp_path') and self.emp_path:
                 '''
@@ -499,9 +507,16 @@ class Node:
                 ag1_emp_trajl = self.path_from_root['agent_1'].get_last().length
                 ag2_emp_trajl = self.path_from_root['agent_2'].get_last().length
                 if hasattr(self, 'on_mspe') and np.any(self.on_mspe):
-                    node_result['mspe'] = True
-                else:
-                    node_result['mspe'] = False
+                    for i in np.arange(self.on_mspe.shape[0]):
+                        for j in np.arange(self.on_mspe.shape[1]):
+                            if self.on_mspe[i,j]:
+                                node_result['mspe'].append((i,j))
+                if hasattr(self, 'on_uspe') and np.any(self.on_uspe):
+                    for i in np.arange(self.on_uspe.shape[0]):
+                        for j in np.arange(self.on_uspe.shape[1]):
+                            if self.on_uspe[i,j]:
+                                node_result['uspe'].append((i,j))
+                
                 if hasattr(self, 'automata_strategy_info'):
                     node_result['ag1_ac'] = self.automata_strategy_info['agent_1']['ac_auto_gamma'],
                     node_result['ag1_nac'] = self.automata_strategy_info['agent_1']['nac_auto_gamma']
@@ -545,9 +560,16 @@ class Node:
                         ag1_emp_trajl = self.path_from_root['agent_1'].get_last().length
                         ag2_emp_trajl = self.path_from_root['agent_2'].get_last().length
                         if hasattr(self, 'on_mspe') and np.any(self.on_mspe):
-                            node_result['mspe'] = True
-                        else:
-                            node_result['mspe'] = False
+                            for i in np.arange(self.on_mspe.shape[0]):
+                                for j in np.arange(self.on_mspe.shape[1]):
+                                    if self.on_mspe[i,j]:
+                                        node_result['mspe'].append((i,j))
+                        if hasattr(self, 'on_uspe') and np.any(self.on_uspe):
+                            for i in np.arange(self.on_uspe.shape[0]):
+                                for j in np.arange(self.on_uspe.shape[1]):
+                                    if self.on_uspe[i,j]:
+                                        node_result['uspe'].append((i,j))
+                    
                         if self.automata_strategy_info is not None:
                             node_result['ag1_ac'] = self.automata_strategy_info['agent_1']['ac_auto_gamma'],
                             node_result['ag1_nac'] = self.automata_strategy_info['agent_1']['nac_auto_gamma']
@@ -784,8 +806,9 @@ class GameTree:
         
         
         
-    def build_tree(self):
+    def build_tree(self,maneuver_constraints):
         print('building lattice nodes...')
+        self.maneuver_constraints = maneuver_constraints
         start_time = time.time()
         level_nodes_2s = self.build_level_nodes(int(1/self.freq))
         level_nodes_4s = self.build_level_nodes(int(2*int(1/self.freq)))
@@ -824,12 +847,49 @@ class GameTree:
     def solve(self,eq_class):
         eq_class.solve(node = self.root,last_decision_level=self.last_decision_level)
         if hasattr(eq_class, 'set_oneq_label'):
-            eq_class.set_oneq_label(self)
+            eq_class.set_oneq_label(self,'on_mspe')
+            eq_class.set_oneq_label(self,'on_uspe')
     
     def print_tree(self):
         if not hasattr(self, 'results'):
             self.results = dict()
         self.root.print_Node(6,self.results)
+        
+    def animate(self,soln_type):
+        analytics_obj = UniWeberAnalytics(constants.CURRENT_FILE_ID)
+        done = []
+        all_vels = [[],[]]
+        if soln_type == 'mspe':
+            all_nodes = get_all_level_nodes(node=self.root,node_list=[],tree_level=self.horizon)
+            for node in all_nodes:
+                for i in np.arange(5):
+                    for j in np.arange(5):
+                        print(i,j)
+                        if hasattr(node, 'on_mspe') and node.on_mspe[i,j]:
+                            parent_node = node.parent
+                            if hasattr(parent_node, 'on_mspe') and parent_node.on_mspe[i,j]:
+                                grandparent_node = parent_node.parent
+                                if hasattr(grandparent_node, 'on_mspe') and grandparent_node.on_mspe[i,j]:
+                                    if hasattr(node, 'animation_done'):
+                                        continue
+                                    all_trajs = [[],[]]
+                                    all_trajs[0] = [(x[1],x[2]) for x in node.path_from_root['agent_1'].loaded_traj]
+                                    all_trajs[1] = [(x[1],x[2]) for x in node.path_from_root['agent_2'].loaded_traj]
+                                    all_vels[0] = [(x[6],x[3]) for x in node.path_from_root['agent_1'].loaded_traj]
+                                    all_vels[1] = [(x[6],x[3]) for x in node.path_from_root['agent_2'].loaded_traj]
+                                    print('----')
+                                    analytics_obj.animate_scene(all_trajs)
+                                    done.append((i,j))
+                node.animation_done = True
+                            
+                    #break
+        fig, axs = plt.subplots(2)
+        fig.suptitle('velocities')
+        axs[0].plot(np.arange(len(all_vels[0])), [x[1] for x in all_vels[0]])
+        axs[1].plot(np.arange(len(all_vels[1])), [x[1] for x in all_vels[1]])
+        plt.show()
+        
+    
     
     def build_level_nodes(self, level):
         conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
@@ -980,20 +1040,20 @@ class GameTree:
 def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
     scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts,freq=freq)
     maneuver_constraints = scene_def.setup_trajectory_constraints()
-    if initialize_db:
-        tree_builder = TreeBuilder(freq)
-        tree_builder.build_complete_tree(maneuver_constraints)
+    tree_builder = TreeBuilder(freq,initialize_db)
+    tree_builder.build_complete_tree(maneuver_constraints)
     
     file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
     gt = GameTree(file_id,freq)
-    gt.build_tree()
+    gt.build_tree(maneuver_constraints)
     type(gt.root).progress_ctr = 0
     type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
     m = MinDistanceGapModel(file_id,freq)
     m.build_model()   
     context = RunContext()
+    context.gt_obj = gt
     manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'track_speed'}}
-    context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True})
+    context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True,'maneuver_constraints':maneuver_constraints})
     drassign_obj = AssignDistRanges()
     drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
     start_time = time.time()
@@ -1006,13 +1066,21 @@ def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
     gt.scene_def = scene_def
     assign_emp_nodes(gt,gt.scene_def)
     gt.print_tree()
-    plot_velocity_profiles(gt,scene_def,freq)
+    #plot_velocity_profiles(gt,scene_def,freq)
+    gt.animate('mspe')
     f=1
+
+
+def animate_one_scenario(gt_file_id):
+    gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,gt_file_id+'.gt'))
+    gt.animate('mspe')
+                
+
 
 def run_all_scenarios():
     freq = 0.5
     initialize_db = True
-    initialize_files = False
+    initialize_files = True
     rerun_failed_files = False
     failed_files = []
     with open(rg_constants.FAILED_FILES_PATH,newline='\n') as csv_file:
@@ -1028,12 +1096,16 @@ def run_all_scenarios():
         sc_reader = csv.reader(csv_file, delimiter=',')
         line_count = 0
         for row in sc_reader:
+            inp_file_id = sys.argv[1]
+            dbfile_id = row[0]
+            if int(dbfile_id) != int(inp_file_id):
+                continue
             if not initialize_files:
                 if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
                     print('row',row,'processed...continuing')
                     continue
             
-            dbfile_id = row[0]
+            
             agent1_id = int(row[3])
             agent2_id = int(row[4])
             start_ts = float(row[5])
@@ -1049,19 +1121,20 @@ def run_all_scenarios():
                     continue
                 maneuver_constraints = scene_def.setup_trajectory_constraints()
                 if initialize_db:
-                    tree_builder = TreeBuilder(freq)
+                    tree_builder = TreeBuilder(freq,initialize_db)
                     tree_builder.build_complete_tree(maneuver_constraints)
                 
                 file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
                 gt = GameTree(file_id,freq)
-                gt.build_tree()
+                gt.build_tree(maneuver_constraints)
                 type(gt.root).progress_ctr = 0
                 type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
                 m = MinDistanceGapModel(file_id,freq)
                 m.build_model()   
                 context = RunContext()
                 manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'track_speed'}}
-                context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True})
+                context.gt_obj = gt
+                context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True,'maneuver_constraints':maneuver_constraints})
                 drassign_obj = AssignDistRanges()
                 drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
                 start_time = time.time()
@@ -1072,6 +1145,7 @@ def run_all_scenarios():
                 gt.solve(RobustResponse(context))
                 print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
                 gt.scene_def = scene_def
+                gt.maneuver_constraints = None
                 pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'), gt)
                 #pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.scenedef'), scene_def)
                 
@@ -1092,10 +1166,10 @@ def run_all_scenarios():
                     fail_writer = csv.writer(failed_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
                     msg = row + [str(ex_type.__name__),str(ex_value),str(stack_trace)]
                     fail_writer.writerow(msg)
-                '''
-                if not isinstance(e, UnsupportedLatticeException):
-                    raise
-                '''
+                
+                #if not isinstance(e, UnsupportedLatticeException) and not isinstance(e, UnsupportedAgentObservationException) :
+                #    raise
+                
             line_count += 1
             
             
@@ -1151,7 +1225,12 @@ def results_all_scenarios():
                 agent2_id = int(row[4])
                 start_ts = float(row[5])
                 #scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=False,start_ts=start_ts)
-                gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'))
+                try:
+                    gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'))
+                except EOFError:
+                    print('row',row,'failed..continuing')
+                    continue
+                    
                 assign_emp_nodes(gt,gt.scene_def)
                 gt.print_tree()
                 print('---------')
@@ -1160,8 +1239,9 @@ def results_all_scenarios():
             
 
 def plot_all_results():
-    hit_ct = {'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0}  
-    range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[]}
+    hit_ct = {'uspe':0,'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0}  
+    range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[]}
+    value_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[]}
     line_count = 0
     resultfiles = [f for f in listdir(rg_constants.RESULTS_FILES) if isfile(join(rg_constants.RESULTS_FILES, f))]
     for resfile_name in resultfiles:
@@ -1187,35 +1267,67 @@ def plot_all_results():
                     if node_res['ag1_ac'] is not False:
                         hit_ct['ac'] += .5
                         range_var['ac'].append(len(np.arange(min(node_res['ag1_ac']), max(node_res['ag1_ac'])+.5,.5)))
+                        value_var['ac'] +=  np.arange(min(node_res['ag1_ac']), max(node_res['ag1_ac'])+.5,.5).tolist()
                     else:
                         hit_ct['nac'] += .5
                         range_var['nac'].append(len(np.arange(min(node_res['ag1_nac']), max(node_res['ag1_nac'])+.5,.5)))
+                        value_var['nac'] += np.arange(min(node_res['ag1_nac']), max(node_res['ag1_nac'])+.5,.5).tolist()
                     if node_res['ag2_ac'] is not False:
                         hit_ct['ac'] += .5
                         range_var['ac'].append(len(np.arange(min(node_res['ag2_ac']), max(node_res['ag2_ac'])+.5,.5)))
+                        value_var['ac'] += np.arange(min(node_res['ag2_ac']), max(node_res['ag2_ac'])+.5,.5).tolist()
                     else:
                         hit_ct['nac'] += .5
                         range_var['nac'].append(len(np.arange(min(node_res['ag2_nac']), max(node_res['ag2_nac'])+.5,.5)))
+                        value_var['nac'] += np.arange(min(node_res['ag2_nac']), max(node_res['ag2_nac'])+.5,.5).tolist()
                 if len(node_res['ag1_auto_resp']) > 0:
                     hit_ct['auto_resp'] += 0.5
                     range_var['auto_resp'].append(len(node_res['ag1_auto_resp']))
+                    value_var['auto_resp'] += node_res['ag1_auto_resp']
                 if len(node_res['ag2_auto_resp']) > 0:
                     hit_ct['auto_resp'] += 0.5
                     range_var['auto_resp'].append(len(node_res['ag2_auto_resp']))
+                    value_var['auto_resp'] += node_res['ag2_auto_resp']
                 if len(node_res['ag1_robust']) > 0:
                     hit_ct['robust'] += 0.5
                     range_var['robust'].append(len(node_res['ag1_robust']))
+                    value_var['robust'] += node_res['ag1_robust']
                 if len(node_res['ag2_robust']) > 0:
                     hit_ct['robust'] += 0.5
                     range_var['robust'].append(len(node_res['ag2_robust']))
+                    value_var['robust'] += node_res['ag2_robust']
+                if len(node_res['mspe']) > 0:
+                    hit_ct['mspe'] += 1
+                    print('mspe')
+                    print(list(set([x[0] for x in node_res['mspe']])))
+                    print(list(set([x[1] for x in node_res['mspe']])))
+                    range_var['mspe'].append(len(list(set([x[0] for x in node_res['mspe']]))))
+                    range_var['mspe'].append(len(list(set([x[1] for x in node_res['mspe']]))))
+                    value_var['mspe'] += list(set([x[0] for x in node_res['mspe']]))
+                    value_var['mspe'] += list(set([x[1] for x in node_res['mspe']]))
+                if len(node_res['uspe']) > 0:
+                    hit_ct['uspe'] += 1
+                    range_var['uspe'].append(len(list(set([x[0] for x in node_res['uspe']]))))
+                    range_var['uspe'].append(len(list(set([x[1] for x in node_res['uspe']]))))
+                    value_var['uspe'] += list(set([x[0] for x in node_res['uspe']]))
+                    value_var['uspe'] += list(set([x[1] for x in node_res['uspe']]))
+                    print('uspe')
+                    print(list(set([x[0] for x in node_res['uspe']])))
+                    print(list(set([x[1] for x in node_res['uspe']])))
+                '''    
                 if node_res['mspe'] is not False:
                     hit_ct['mspe'] += 1
-                
+                if node_res['uspe'] is not False:
+                    hit_ct['uspe'] += 1
+                '''
                 if (node_res['ag1_ac'] is not False or node_res['ag1_nac'] is not False or len(node_res['ag1_auto_resp']) > 0 or len(node_res['ag1_robust']) > 0) and  \
                     (node_res['ag2_ac'] is not False or node_res['ag2_nac'] is not False or len(node_res['ag2_auto_resp']) > 0 or len(node_res['ag2_robust']) > 0):
                         no_expl = False
-                if node_res['mspe'] is not False:
+                if len(node_res['uspe']) > 0:
                     no_expl = False
+                if len(node_res['mspe']) > 0:
+                    no_expl = False
+                
                 if no_expl:
                     hit_ct['no_exp'] += 1
     plt.figure()
@@ -1227,8 +1339,39 @@ def plot_all_results():
     bp = ax.boxplot(list(range_var.values()))
     ax.set_yticklabels(list(range_var.keys()))
     '''
+    _x,_sd = [],[]
     for k,v in range_var.items():
-        print(k,np.mean(v))
+        v = [(x-1)*0.5 for x in v]
+        print(k,np.mean(v),np.std(v),np.min(v),np.max(v))
+        '''
+        plt.figure()
+        plt.title(k)
+        plt.hist(v)
+        plt.show() 
+        '''
+        _x.append(np.mean(v))
+        _sd.append(np.std(v))
+    plt.figure()
+    plt.title('uncertainty')
+    plt.errorbar(list(value_var.keys()), _x, _sd,linestyle='None', marker='^')
+    err_range = [x/2 for x in _x]
+    print('---values---')
+    _x,_sd = [],[]
+    for k,v in value_var.items():
+        if k == 'auto_resp' or k == 'uspe' or k == 'mspe' or k == 'robust':
+            v = [-1 + (x*0.5) for x in v]
+        print(k,np.mean(v),np.std(v),np.min(v),np.max(v))
+        
+        plt.figure()
+        plt.title(k)
+        plt.hist(v,orientation='horizontal')
+        plt.show()
+         
+        _x.append(np.mean(v))
+        _sd.append(np.std(v))
+    plt.figure()
+    plt.title('threshold values')
+    plt.errorbar(list(value_var.keys()), _x, err_range,linestyle='None', marker='^')
     plt.show()
                   
 def plot_velocity_profiles(gt,scene_def,freq):
@@ -1316,7 +1459,14 @@ def plot_velocity_profiles(gt,scene_def,freq):
     plt.title('ag-2')
     plt.show()
     f=1
-if __name__ == '__main__':
-    #run_one_scenario(dbfile_id='769',agent1_id=8,agent2_id=23,start_ts=5.338667,initialize_db=True,freq=1)
+    
+def main():
     run_all_scenarios()
+    
+if __name__ == '__main__':
+    run_one_scenario(dbfile_id='769', agent1_id=8, agent2_id=1, start_ts=0, initialize_db=True, freq=0.5)
+    #animate_one_scenario('769_rt_ws_8_23_3,338667')
+    #plot_all_results()
+    #run_all_scenarios()
+    #results_all_scenarios()
     

@@ -14,6 +14,7 @@ import math
 from equilibrium.range_estimation import MinDistanceGapModel
 
 
+
 def gaussian_smoothing(a):
     x, y = a.T
     t = np.linspace(0, 1, len(x))
@@ -191,6 +192,45 @@ class UniWeberAnalytics:
         c.execute(q_string)
         res = c.fetchall()
         m = MinDistanceGapModel(self.file_id)
+        
+    def animate_scene(self,trajs_list):
+        
+        fig, ax = plt.subplots()
+        lines = [plt.plot([], [],lw=2)[0] for _ in range(len(trajs_list))] 
+        #plt.xlim(538780, 538890)
+        #plt.ylim(4813970, 4814055)
+        
+        #plot_traffic_regions(ax)
+        
+        img = plt.imread("D:\\behavior modeling\\background.jpg")
+        ax.imshow(img, extent=[538780, 538890, 4813970, 4814055])
+        
+        # initialization function: plot the background of each frame
+        patches = lines
+        def init():
+            for ln in lines:
+                ln.set_data([], [])
+            
+            return patches
+        
+        # animation function.  This is called sequentially
+        def animate(i):
+            #print('called in loop',i)
+            for idx,ln in enumerate(lines):
+                if i > len(trajs_list[idx]):
+                    ln.set_data([], [])
+                else:
+                    ln.set_data([x[0] for x in trajs_list[idx][:i]], [x[1] for x in trajs_list[idx][:i]])
+            
+            return patches
+        
+        # call the animator.  blit=True means only re-draw the parts that have changed.
+        anim = animation.FuncAnimation(fig, animate, init_func=init,
+                                   frames=max([len(x) for x in trajs_list]), interval=100, blit=True, repeat = True) 
+        plt.show()
+        
+        
+        
         
     
 

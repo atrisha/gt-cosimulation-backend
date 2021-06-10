@@ -32,7 +32,7 @@ class Utilities:
         self._util_info = util_info
     
     def exp_dist_payoffs(self,dist_arr,params=None):
-        params = (5.5,1,.25)
+        params = (10.5,3,.25)
         if not isinstance(params, np.ndarray):
             if dist_arr < 7:
                 c2 = scipy.special.erf((dist_arr - params[0]) / (params[1] * 2))
@@ -73,7 +73,7 @@ class Utilities:
             return 1
         
     def progress_payoff_dist(self,dist,ag_type):
-        prog_util = min(dist / 100, 1)
+        prog_util = min(dist / 100, 1) if ag_type == 'agent_2' else min(dist / 17, 1) 
         return prog_util
         
     def combine_utils(self,prog_util,safe_util,thresh):
@@ -154,5 +154,7 @@ class Utilities:
         
         plt.show() # or:
         
-
+if __name__ == '__main__':
+    u = Utilities()
+    u.plot()
         

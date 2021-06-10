@@ -20,6 +20,8 @@ from collections import OrderedDict
 from code_utils.code_util_objects import RunContext
 from code_utils.utils import get_all_level_nodes, get_nearest_node
 from code_utils.utils import *
+import copy
+
 #from figures import SIZE, set_limits, plot_coords, plot_bounds, plot_line_issimple
 
 COLOR = {
@@ -124,16 +126,19 @@ class Equilibria:
             equil.append(eq_strat)
         return equil
     
+    '''
+    This is the key idea. It takes in the equilibrium and expands it based on mspe and uspe logic, and returns the expanded range.
+    '''
     def expand_equil(self,eq_strat,veh_br_map, peds_br_map, belief_index):
         veh_eq_act = eq_strat.x
         peds_eq_act = eq_strat.y
         i,j = belief_index[0], belief_index[1]
         veh_br_key = min(veh_br_map.keys(), key=lambda x:abs(x-peds_eq_act))
-        veh_br_range = (veh_br_map[veh_br_key][0][i,j], veh_br_map[veh_br_key][1][i,j])
+        veh_br_range = (veh_br_map[veh_br_key][0][i,j], veh_br_map[veh_br_key][1][i,j], veh_br_map[veh_br_key][2][i,j])
         peds_br_key = min(peds_br_map.keys(), key=lambda x:abs(x-veh_eq_act))
         ''' for agent_2, the indexes should be flipped since i is always agent_1, and agent_2 br matrix had i as agent_2 threshold'''
         ''' on second thought, they need not be flipped, because peds_br_map has the entries based on the gamma matrix[1]'''
-        peds_br_range = (peds_br_map[peds_br_key][0][i,j], peds_br_map[peds_br_key][1][i,j])
+        peds_br_range = (peds_br_map[peds_br_key][0][i,j], peds_br_map[peds_br_key][1][i,j], peds_br_map[peds_br_key][2][i,j])
         return (veh_br_range,peds_br_range)
     
     def __init__(self,run_context = None):
@@ -141,6 +146,47 @@ class Equilibria:
             self.run_context = RunContext()
         else:
             self.run_context = run_context
+        l6_nodes = get_all_level_nodes(run_context.gt_obj.root, [], run_context.gt_obj.horizon)
+        print('adding contd utils....')
+        N = len(l6_nodes)
+        for ctr,n in enumerate(l6_nodes):
+            if hasattr(n, 'mean_safe_util_contd'):
+                continue
+            print('adding contd utils....',ctr,'/',N)
+            mean_safe_util_contd = self.calc_extended_util(n.path_from_root['agent_1'], n.path_from_root['agent_2'])
+            #n.path_from_root['agent_1'].mean_safe_util_contd = mean_safe_util_contd
+            #n.path_from_root['agent_2'].mean_safe_util_contd = mean_safe_util_contd
+            n.mean_safe_util_contd = mean_safe_util_contd
+        print('adding contd utils....DONE')
+            
+            
+    def calc_extended_util(self,ag1_traj_frag,ag2_traj_frag):
+        ag1_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_1'][ag1_traj_frag.get_last().manv]
+        try:
+            ag2_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_2'][ag2_traj_frag.get_last().manv]
+        except KeyError:
+            f=1
+            raise
+        ag1_trajs = ag1_motion_obj.generate_extended_trajectory(ag1_traj_frag,{manv:manv for manv in self.run_context.maneuver_constraints['agent_1']['maneuvers'].keys()})
+        ag2_trajs = ag2_motion_obj.generate_extended_trajectory(ag2_traj_frag,{manv:manv for manv in self.run_context.maneuver_constraints['agent_2']['maneuvers'].keys()})
+        
+        
+        '''
+        for ag1_t,ag2_t in itertools.product(ag1_trajs,ag2_trajs):
+            plt.plot([x[1] for x in ag1_t],[x[2] for x in ag1_t])
+            plt.plot([x[1] for x in ag2_t],[x[2] for x in ag2_t])
+        plt.xlim(538780, 538890)
+        plt.ylim(4813970, 4814055)
+        plt.show()
+        '''
+        u = Utilities()
+        dist_gaps = []
+        for ag1_t,ag2_t in itertools.product(ag1_trajs,ag2_trajs):
+            _dg = u.calc_dist_gap(ag1_t, ag2_t, (1,2))
+            dist_gaps.append(_dg)
+        avg_dg = np.mean(dist_gaps)
+        mean_safe_util = u.calc_safe_payoff(avg_dg)
+        return mean_safe_util
                 
 class AutoStrategyResponse(Equilibria):
     
@@ -180,14 +226,19 @@ class AutoStrategyResponse(Equilibria):
                 if (self.run_context.acc_dynamic and not ag1_tf.is_ac_likely) \
                     and (self.run_context.non_acc_dynamic and not ag1_tf.is_nac_likely):
                     continue
-                step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), u.calc_safe_payoff(dist_gap), gamma_matrix[1])
+                safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+                step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), safe_payoff_for_dist, gamma_matrix[1])
                 if node.level == last_decision_level:
-                    cont_util = np.copy(step_util)
+                    ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd
+                    cont_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), ext_safe_utils, gamma_matrix[1])
+                    _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                 else:
                     if len(ag2_tf._next_node.children) == 0:
                         continue
                     else:
                         cont_util = ag2_tf._next_node.auto_strategy_response['agent_2'][0]['utils']
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
                     #cont_util = cont_util.T
                     #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
                 _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
@@ -196,7 +247,7 @@ class AutoStrategyResponse(Equilibria):
                 _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
                 manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
                 traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
-                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float)])
+                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
                 ag_2_resp.append(_resp_entry)
         if len(ag_2_resp) == 0:
             self.agent_2_auto_strategy_response = None
@@ -205,15 +256,31 @@ class AutoStrategyResponse(Equilibria):
             ag_2_resp_sorted = np.sort(ag_2_resp,axis=0,order='utils')[::-1]
             upper_bound_matrix = np.copy(ag_2_resp_sorted[0,:,:])
             upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:,:], ag_2_resp_sorted.shape[0], axis=0)
+            lower_bound_safety_matrix = np.copy(ag_2_resp_sorted)
+            lower_safety_bound_matrix_check = ag_2_resp_sorted['safe_utils'] >= gamma_matrix[1]
             lower_bound_matrix = np.copy(ag_2_resp_sorted)
             _x1 = ag_2_resp_sorted['manv'] == upper_bound_matrix['manv']
             _x2 = ag_2_resp_sorted['utils'] == upper_bound_matrix['utils']
             _x3 = np.logical_or(_x1,_x2)
-            selected_indices = np.argmin(_x3, axis=0) - 1
-            ag2_lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
+            if np.all(_x3):
+                ag2_lower_bound_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(_x3)):
+                ag2_lower_bound_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(_x3, axis=0) - 1
+                ag2_lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
+                
+            if np.all(lower_safety_bound_matrix_check):
+                ag2_lower_bound_safety_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(lower_safety_bound_matrix_check)):
+                ag2_lower_bound_safety_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(lower_safety_bound_matrix_check, axis=0) - 1
+                ag2_lower_bound_safety_matrix = np.take_along_axis(lower_bound_safety_matrix,selected_indices[np.newaxis],axis=0)[0]
+            
             ag2_upper_bound_matrix = upper_bound_matrix[0,:,:]
             
-            node.auto_strategy_response['agent_2'] = (ag2_upper_bound_matrix,ag2_lower_bound_matrix)
+            node.auto_strategy_response['agent_2'] = (ag2_upper_bound_matrix,ag2_lower_bound_matrix,ag2_lower_bound_safety_matrix)
         
         ag_1_resp = []
         for ag2_tf in ped_acts:
@@ -239,21 +306,26 @@ class AutoStrategyResponse(Equilibria):
                 if (self.run_context.acc_dynamic and not ag2_tf.is_ac_likely) \
                     and (self.run_context.non_acc_dynamic and not ag2_tf.is_nac_likely):
                     continue
-                step_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), u.calc_safe_payoff(dist_gap), gamma_matrix[0])
+                safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+                step_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
                 if node.level == last_decision_level:
-                    cont_util = np.copy(step_util)
+                    ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd
+                    cont_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                    _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                 else:
                     if len(ag1_tf._next_node.children) == 0:
                         continue
                     else:
                         cont_util = ag1_tf._next_node.auto_strategy_response['agent_1'][0]['utils']
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
                 _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=np.record)
                 #if np.isnan(cont_util).any():
                 #    continue
                 _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
                 manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=ag1_tf.manv)
                 traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = ag1_tf.length)
-                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float)])
+                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
                 ag_1_resp.append(_resp_entry)
         if len(ag_1_resp) == 0:
             self.agent_1_auto_strategy_response = None
@@ -263,20 +335,36 @@ class AutoStrategyResponse(Equilibria):
             upper_bound_matrix = np.copy(ag_1_resp_sorted[0,:,:])
             upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:,:], ag_1_resp_sorted.shape[0], axis=0)
             lower_bound_matrix = np.copy(ag_1_resp_sorted)
+            lower_bound_safety_matrix = np.copy(ag_1_resp_sorted)
+            lower_safety_bound_matrix_check = ag_1_resp_sorted['safe_utils'] >= gamma_matrix[0]
             _x1 = ag_1_resp_sorted['manv'] == upper_bound_matrix['manv']
             _x2 = ag_1_resp_sorted['utils'] == upper_bound_matrix['utils']
             _x3 = np.logical_or(_x1,_x2)
-            selected_indices = np.argmin(_x3, axis=0) - 1
-            ag1_lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
+            if np.all(_x3):
+                ag1_lower_bound_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(_x3)):
+                ag1_lower_bound_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(_x3, axis=0) - 1
+                ag1_lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
+                
+            if np.all(lower_safety_bound_matrix_check):
+                ag1_lower_bound_safety_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(lower_safety_bound_matrix_check)):
+                ag1_lower_bound_safety_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(lower_safety_bound_matrix_check, axis=0) - 1
+                ag1_lower_bound_safety_matrix = np.take_along_axis(lower_bound_safety_matrix,selected_indices[np.newaxis],axis=0)[0]
+            
             ag1_upper_bound_matrix = upper_bound_matrix[0,:,:]
                          
-            node.auto_strategy_response['agent_1'] = (ag1_upper_bound_matrix,ag1_lower_bound_matrix)
+            node.auto_strategy_response['agent_1'] = (ag1_upper_bound_matrix,ag1_lower_bound_matrix, ag1_lower_bound_safety_matrix)
         
     
 class RobustResponse(Equilibria):
 
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        if len(node.children) > 9:
+        if node._ext_id == 7:
             f=1
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         gamma_matrix.reverse()
@@ -285,16 +373,23 @@ class RobustResponse(Equilibria):
                                 'agent_2' : np.empty(shape= (gamma_matrix[1].shape[1],1), dtype=object)}
         for i in np.arange(node.robust_response['agent_1'].shape[0]):
             ''' agent_1 private tolerance type is i '''
-            if not hasattr(node, 'on_mspe') or  (hasattr(node, 'on_mspe') and np.all(node.on_mspe[i,:] == False)):
-                no_mspe = True
+            
+            if (not hasattr(node, 'on_mspe') or  (hasattr(node, 'on_mspe') and np.all(node.on_mspe[i,:] == False))) and (not hasattr(node, 'on_uspe') or  (hasattr(node, 'on_uspe') and np.all(node.on_uspe[i,:] == False))):
+                no_spe = True
             else:
-                no_mspe = False
+                no_spe = False
                 all_eq_list = node.equilibrium_solutions[i,:]
                 ''' this is just a response, so te best response function can be None'''
                             
                 min_util,min_idx = np.inf,(0,0)
                 for bl_idx,all_eq in enumerate(all_eq_list):
                     if all_eq is not None and hasattr(node, 'on_mspe') and node.on_mspe[i,bl_idx]:
+                        for idx,eq in enumerate(all_eq):
+                            if eq.veh_eq_utils[0] < min_util:
+                                min_util = eq.veh_eq_utils[0]
+                                min_idx = (bl_idx,idx)
+                for bl_idx,all_eq in enumerate(all_eq_list):
+                    if all_eq is not None and hasattr(node, 'on_uspe') and node.on_uspe[i,bl_idx]:
                         for idx,eq in enumerate(all_eq):
                             if eq.veh_eq_utils[0] < min_util:
                                 min_util = eq.veh_eq_utils[0]
@@ -306,30 +401,41 @@ class RobustResponse(Equilibria):
                 all_auto_resps = (node.auto_strategy_response['agent_1'][0][i,0], node.auto_strategy_response['agent_1'][1][i,0])
                 soln.veh_eq_acts = (all_auto_resps[0]['traj_l'],all_auto_resps[1]['traj_l'])
                 soln.veh_eq_utils = (all_auto_resps[0]['utils'],all_auto_resps[1]['utils'])
-                if no_mspe:
+                if no_spe:
                     node.robust_response['agent_1'][i] = soln
                 else:
-                    robust_resp_to_mspe = all_eq_list[min_idx[0]][min_idx[1]]
-                    node.robust_response['agent_1'][i] = soln if soln.veh_eq_utils[0] < robust_resp_to_mspe.veh_eq_utils[0] else robust_resp_to_mspe
+                    robust_resp_to_spe = all_eq_list[min_idx[0]][min_idx[1]]
+                    node.robust_response['agent_1'][i] = soln if soln.veh_eq_utils[0] < robust_resp_to_spe.veh_eq_utils[0] else copy.copy(robust_resp_to_spe)
+                    node.robust_response['agent_1'][i,0].veh_eq_utils = (node.robust_response['agent_1'][i,0].veh_eq_utils[0],soln.veh_eq_utils[1] if soln.veh_eq_utils[1] > robust_resp_to_spe.veh_eq_utils[1] else robust_resp_to_spe.veh_eq_utils[1])
+                    node.robust_response['agent_1'][i,0].veh_eq_acts = (node.robust_response['agent_1'][i,0].veh_eq_acts[0],soln.veh_eq_acts[1] if soln.veh_eq_utils[1] > robust_resp_to_spe.veh_eq_utils[1] else robust_resp_to_spe.veh_eq_acts[1])
+                    
+                    node.robust_response['agent_1'][i,0].veh_eq_utils = (node.robust_response['agent_1'][i,0].veh_eq_utils[0],node.robust_response['agent_1'][i,0].veh_eq_utils[1] if node.robust_response['agent_1'][i,0].veh_eq_utils[1] > robust_resp_to_spe.veh_eq_utils[2] else robust_resp_to_spe.veh_eq_utils[2])
+                    node.robust_response['agent_1'][i,0].veh_eq_acts = (node.robust_response['agent_1'][i,0].veh_eq_acts[0],node.robust_response['agent_1'][i,0].veh_eq_acts[1] if node.robust_response['agent_1'][i,0].veh_eq_utils[1] > robust_resp_to_spe.veh_eq_utils[2] else robust_resp_to_spe.veh_eq_acts[2]) 
             else:
-                if not no_mspe and all_eq_list[min_idx[0]] is not None:
-                    robust_resp_to_mspe = all_eq_list[min_idx[0]][min_idx[1]]
-                    node.robust_response['agent_1'][i] = robust_resp_to_mspe
+                if not no_spe and all_eq_list[min_idx[0]] is not None:
+                    robust_resp_to_spe = all_eq_list[min_idx[0]][min_idx[1]]
+                    node.robust_response['agent_1'][i] = robust_resp_to_spe
                 else:
                     node.robust_response['agent_1'][i] = None 
             
         for j in np.arange(node.robust_response['agent_2'].shape[0]):
             ''' agent_2 private tolerance type is j '''
-            if not hasattr(node, 'on_mspe') or  (hasattr(node, 'on_mspe') and np.all(node.on_mspe[:,j] == False)):
-                no_mspe = True
+            if (not hasattr(node, 'on_mspe') or  (hasattr(node, 'on_mspe') and np.all(node.on_mspe[:,j] == False))) and (not hasattr(node, 'on_uspe') or  (hasattr(node, 'on_uspe') and np.all(node.on_uspe[:,j] == False))):
+                no_spe = True
             else:
-                no_mspe = False
+                no_spe = False
                 all_eq_list = node.equilibrium_solutions[:,j]
                 ''' this is just a response, so te best response function can be None'''
                 
                 min_util,min_idx = np.inf,(0,0)
                 for bl_idx,all_eq in enumerate(all_eq_list):
                     if all_eq is not None and hasattr(node, 'on_mspe') and node.on_mspe[bl_idx,j]:
+                        for idx,eq in enumerate(all_eq):
+                            if eq.peds_eq_utils[0] < min_util:
+                                min_util = eq.peds_eq_utils[0]
+                                min_idx = (bl_idx,idx)
+                for bl_idx,all_eq in enumerate(all_eq_list):
+                    if all_eq is not None and hasattr(node, 'on_uspe') and node.on_uspe[bl_idx,j]:
                         for idx,eq in enumerate(all_eq):
                             if eq.peds_eq_utils[0] < min_util:
                                 min_util = eq.peds_eq_utils[0]
@@ -341,15 +447,20 @@ class RobustResponse(Equilibria):
                 all_auto_resps = (node.auto_strategy_response['agent_2'][0][0,j], node.auto_strategy_response['agent_2'][1][0,j])
                 soln.peds_eq_acts = (all_auto_resps[0]['traj_l'],all_auto_resps[1]['traj_l'])
                 soln.peds_eq_utils = (all_auto_resps[0]['utils'],all_auto_resps[1]['utils'])
-                if no_mspe:
+                if no_spe:
                     node.robust_response['agent_2'][j] = soln
                 else:
-                    robust_resp_to_mspe = all_eq_list[min_idx[0]][min_idx[1]]
-                    node.robust_response['agent_2'][j] = soln if soln.peds_eq_utils[0] < robust_resp_to_mspe.peds_eq_utils[0] else robust_resp_to_mspe
+                    robust_resp_to_spe = all_eq_list[min_idx[0]][min_idx[1]]
+                    node.robust_response['agent_2'][j] = soln if soln.peds_eq_utils[0] < robust_resp_to_spe.peds_eq_utils[0] else copy.copy(robust_resp_to_spe)
+                    node.robust_response['agent_2'][j,0].peds_eq_utils = (node.robust_response['agent_2'][j,0].peds_eq_utils[0],soln.peds_eq_utils[1] if soln.peds_eq_utils[1] > robust_resp_to_spe.peds_eq_utils[1] else robust_resp_to_spe.peds_eq_utils[1])
+                    node.robust_response['agent_2'][j,0].peds_eq_acts = (node.robust_response['agent_2'][j,0].peds_eq_acts[0],soln.peds_eq_acts[1] if soln.peds_eq_utils[1] > robust_resp_to_spe.peds_eq_utils[1] else robust_resp_to_spe.peds_eq_acts[1]) 
+                    
+                    node.robust_response['agent_2'][j,0].peds_eq_utils = (node.robust_response['agent_2'][j,0].peds_eq_utils[0],node.robust_response['agent_2'][j,0].peds_eq_utils[1] if node.robust_response['agent_2'][j,0].peds_eq_utils[1] > robust_resp_to_spe.peds_eq_utils[2] else robust_resp_to_spe.peds_eq_utils[2])
+                    node.robust_response['agent_2'][j,0].peds_eq_acts = (node.robust_response['agent_2'][j,0].peds_eq_acts[0],node.robust_response['agent_2'][j,0].peds_eq_acts[1] if node.robust_response['agent_2'][j,0].peds_eq_acts[1] > robust_resp_to_spe.peds_eq_utils[2] else robust_resp_to_spe.peds_eq_acts[2]) 
             else:
-                if not no_mspe and all_eq_list[min_idx[0]] is not None:
-                    robust_resp_to_mspe = all_eq_list[min_idx[0]][min_idx[1]]
-                    node.robust_response['agent_2'][j] = robust_resp_to_mspe
+                if not no_spe and all_eq_list[min_idx[0]] is not None:
+                    robust_resp_to_spe = all_eq_list[min_idx[0]][min_idx[1]]
+                    node.robust_response['agent_2'][j] = robust_resp_to_spe
                 else:
                     node.robust_response['agent_2'][j] = None
         
@@ -357,40 +468,58 @@ class RobustResponse(Equilibria):
         
 class SatisficingEquilibria(Equilibria):
     
-    def set_oneq_label(self,gt):
+    def set_oneq_label(self,gt,eqtype_label):
         l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=int(1/gt.freq))
         for i in np.arange(gt.root.equilibrium_solutions.shape[0]):
             for j in np.arange(gt.root.equilibrium_solutions.shape[1]):
                 eq_2l = []
                 for eq in gt.root.equilibrium_solutions[i,j]:
-                    ag1_tl_range = eq.veh_eq_acts
-                    ag2_tl_range = eq.peds_eq_acts
+                    ag1_tl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[2])
+                    ag2_tl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[2])
                     eq_2l += get_within_node(l2_nodes, ag1_tl_range, ag2_tl_range)
                 for n2l in l2_nodes:
-                    if not hasattr(n2l, 'on_mspe'):
-                        n2l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                    if not hasattr(n2l, eqtype_label):
+                        if eqtype_label == 'on_mspe':
+                            n2l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                        else:
+                            n2l.on_uspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
                     if n2l._ext_id in eq_2l:
-                        n2l.on_mspe[i,j] = True
+                        if eqtype_label == 'on_mspe':
+                            n2l.on_mspe[i,j] = True
+                        else:
+                            n2l.on_uspe[i,j] = True
                         eq_4l = []
                         for eq in n2l.equilibrium_solutions[i,j]:
-                            ag1_4ltl_range = eq.veh_eq_acts
-                            ag2_4ltl_range = eq.peds_eq_acts
+                            ag1_4ltl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[2])
+                            ag2_4ltl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[2])
                             eq_4l += get_within_node(n2l.children, ag1_4ltl_range, ag2_4ltl_range)
                         for n4l in n2l.children:
-                            if not hasattr(n4l, 'on_mspe'):
-                                n4l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                            if not hasattr(n4l, eqtype_label):
+                                if eqtype_label == 'on_mspe':
+                                    n4l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                                else:
+                                    n4l.on_uspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
                             if n4l._ext_id in eq_4l:
-                                n4l.on_mspe[i,j] = True
+                                if eqtype_label == 'on_mspe':
+                                    n4l.on_mspe[i,j] = True
+                                else:
+                                    n4l.on_uspe[i,j] = True
                                 eq_6l = []
                                 for eq in n4l.equilibrium_solutions[i,j]:
-                                    ag1_6ltl_range = eq.veh_eq_acts
-                                    ag2_6ltl_range = eq.peds_eq_acts
+                                    ag1_6ltl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[2])
+                                    ag2_6ltl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[2])
                                     eq_6l += get_within_node(n4l.children, ag1_6ltl_range, ag2_6ltl_range)
                                 for n6l in n4l.children:
-                                    if not hasattr(n6l, 'on_mspe'):
-                                        n6l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                                    if not hasattr(n6l, eqtype_label):
+                                        if eqtype_label == 'on_mspe':
+                                            n6l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                                        else:
+                                            n6l.on_uspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
                                         if n6l._ext_id in eq_6l:
-                                            n6l.on_mspe[i,j] = True
+                                            if eqtype_label == 'on_mspe':
+                                                n6l.on_mspe[i,j] = True
+                                            else:
+                                                n6l.on_uspe[i,j] = True
                         
                         
                             
@@ -398,6 +527,8 @@ class SatisficingEquilibria(Equilibria):
         
     
     def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        if node._ext_id == 7:
+            f=1
         type(node).progress_ctr += 1
         #print('processing node level',node.level,'id:',node._ext_id)
         print('solving node',type(node).progress_ctr,'/',type(node).tree_size)
@@ -431,12 +562,17 @@ class SatisficingEquilibria(Equilibria):
                     manv, manv_mode, ped_traj_l, dist_gap = peds_frag.manv, peds_frag.manv_mode, peds_frag.length, u.calc_dist_gap(veh_traj = veh_traj_frag.loaded_traj_frag, ped_traj = peds_frag.loaded_traj_frag)
                     ped_traj_l_list.add(ped_traj_l)
                     assert ped_traj_l >= 0
-                    step_util = u.combine_utils(u.progress_payoff_dist(ped_traj_l, 'agent_2'), u.calc_safe_payoff(dist_gap), gamma_matrix[1])
+                    safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+                    step_util = u.combine_utils(u.progress_payoff_dist(ped_traj_l, 'agent_2'), safe_payoff_for_dist , gamma_matrix[1])
                     if node.level == last_decision_level:
-                        cont_util = np.copy(step_util)
+                        ext_safe_utils = peds_frag._next_node.mean_safe_util_contd
+                        cont_util = u.combine_utils(u.progress_payoff_dist(ped_traj_l, 'agent_2'), ext_safe_utils, gamma_matrix[1])
+                        _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                     else:
                         f = np.vectorize(self._max_util)
                         cont_util = f(peds_frag._next_node.equilibrium_solutions,1)
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
                         #cont_util = cont_util.T
                         #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
                     _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
@@ -444,9 +580,10 @@ class SatisficingEquilibria(Equilibria):
                     if np.isnan(cont_util).all():
                         continue
                     #_util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+                    
                     manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=manv)
                     traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ped_traj_l)
-                    _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float)])
+                    _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
                     resp_vect.append(_resp_entry)
                     
             resp_vect = np.array(resp_vect)
@@ -458,21 +595,37 @@ class SatisficingEquilibria(Equilibria):
             upper_bound_matrix = np.copy(resp_vect_sorted[0,:,:])
             upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:,:], resp_vect_sorted.shape[0], axis=0)
             lower_bound_matrix = np.copy(resp_vect_sorted)
+            lower_bound_safety_matrix = np.copy(resp_vect_sorted)
+            lower_safety_bound_matrix_check = resp_vect_sorted['safe_utils'] >= gamma_matrix[1]
             _x1 = resp_vect_sorted['manv'] == upper_bound_matrix['manv']
             _x2 = resp_vect_sorted['utils'] == upper_bound_matrix['utils']
             _x3 = np.logical_or(_x1,_x2)
-            selected_indices = np.argmin(_x3, axis=0) - 1
-            lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
+            if np.all(_x3):
+                lower_bound_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(_x3)):
+                lower_bound_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(_x3, axis=0) - 1
+                lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
+            if np.all(lower_safety_bound_matrix_check):
+                lower_bound_safety_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(lower_safety_bound_matrix_check)):
+                lower_bound_safety_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(lower_safety_bound_matrix_check, axis=0) - 1
+                lower_bound_safety_matrix = np.take_along_axis(lower_bound_safety_matrix,selected_indices[np.newaxis],axis=0)[0]
+            
             upper_bound_matrix = upper_bound_matrix[0,:,:]
             
             #print('pedestrian responding',ct,'/',N,'to',v_traj_l)
             
             if v_traj_l not in peds_best_response:
-                peds_best_response[v_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix))
+                peds_best_response[v_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix), np.copy(lower_bound_safety_matrix))
             else:
                 _merged_arr_ub = np.where(peds_best_response[v_traj_l][0]['utils'] > upper_bound_matrix['utils'], peds_best_response[v_traj_l][0], upper_bound_matrix)
                 _merged_arr_lb = np.where(peds_best_response[v_traj_l][1]['utils'] < lower_bound_matrix['utils'], peds_best_response[v_traj_l][1], lower_bound_matrix)
-                peds_best_response[v_traj_l] = (_merged_arr_ub, _merged_arr_lb)
+                _merged_arr_s_lb = np.where(peds_best_response[v_traj_l][1]['utils'] < lower_bound_safety_matrix['utils'], peds_best_response[v_traj_l][1], lower_bound_safety_matrix)
+                peds_best_response[v_traj_l] = (_merged_arr_ub, _merged_arr_lb, _merged_arr_s_lb)
                 
                 
             
@@ -531,12 +684,17 @@ class SatisficingEquilibria(Equilibria):
                     manv, manv_mode, veh_traj_l, dist_gap = veh_frag.manv, veh_frag.manv_mode, veh_frag.length, u.calc_dist_gap(veh_traj = veh_frag.loaded_traj_frag, ped_traj = ped_traj_frag.loaded_traj_frag)
                     veh_traj_l_list.add(veh_traj_l)
                     assert veh_traj_l >= 0
-                    step_util = u.combine_utils(u.progress_payoff_dist(veh_traj_l, 'agent_1'), u.calc_safe_payoff(dist_gap), gamma_matrix[0])
+                    safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+                    step_util = u.combine_utils(u.progress_payoff_dist(veh_traj_l, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
                     if node.level == last_decision_level:
-                        cont_util = np.copy(step_util)
+                        ext_safe_utils = veh_frag._next_node.mean_safe_util_contd
+                        cont_util = u.combine_utils(u.progress_payoff_dist(veh_traj_l, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                        _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                     else:
                         f = np.vectorize(self._max_util)
                         cont_util = f(veh_frag._next_node.equilibrium_solutions,0)
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
                         #cont_util = max([max(x.veh_eq_utils) for x in veh_frag._next_node.equilibrium_solutions])
                     _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=object)
                     _util_entry_matrix = np.where(np.isnan(cont_util), cont_util, np.mean(np.array([ cont_util, step_util ]), axis=0 ))
@@ -546,7 +704,7 @@ class SatisficingEquilibria(Equilibria):
                     #_util_entry_matrix = np.mean( np.array([ cont_util, step_util ]), axis = 0)
                     manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=manv)
                     traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = veh_traj_l)
-                    _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix), names=('manv', 'traj_l', 'utils'))
+                    _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
                     
                     resp_vect.append(_resp_entry)
                     
@@ -555,20 +713,38 @@ class SatisficingEquilibria(Equilibria):
             upper_bound_matrix = np.copy(resp_vect_sorted[0,:,:])
             upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:,:], resp_vect_sorted.shape[0], axis=0)
             lower_bound_matrix = np.copy(resp_vect_sorted)
+            lower_bound_safety_matrix = np.copy(resp_vect_sorted)
+            lower_safety_bound_matrix_check = resp_vect_sorted['safe_utils'] >= gamma_matrix[0]
             _x1 = resp_vect_sorted['manv'] == upper_bound_matrix['manv']
             _x2 = resp_vect_sorted['utils'] == upper_bound_matrix['utils']
             _x3 = np.logical_or(_x1,_x2)
-            selected_indices = np.argmin(_x3, axis=0) - 1
-            lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
+            if np.all(_x3):
+                lower_bound_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(_x3)):
+                lower_bound_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(_x3, axis=0) - 1
+                lower_bound_matrix = np.take_along_axis(lower_bound_matrix,selected_indices[np.newaxis],axis=0)[0]
+            
+            if np.all(lower_safety_bound_matrix_check):
+                lower_bound_safety_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(lower_safety_bound_matrix_check)):
+                lower_bound_safety_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(lower_safety_bound_matrix_check, axis=0) - 1
+                lower_bound_safety_matrix = np.take_along_axis(lower_bound_safety_matrix,selected_indices[np.newaxis],axis=0)[0]
+            
             upper_bound_matrix = upper_bound_matrix[0,:,:]
             
             #print('vehicle responding',ct,'/',N,'to',p_traj_l)
             if p_traj_l not in veh_best_response:
-                    veh_best_response[p_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix))
+                    veh_best_response[p_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix), np.copy(lower_bound_safety_matrix))
             else:
                 _merged_arr_ub = np.where(veh_best_response[p_traj_l][0]['utils'] > upper_bound_matrix['utils'], veh_best_response[p_traj_l][0], upper_bound_matrix)
                 _merged_arr_lb = np.where(veh_best_response[p_traj_l][1]['utils'] < lower_bound_matrix['utils'], veh_best_response[p_traj_l][1], lower_bound_matrix)
-                veh_best_response[p_traj_l] = (_merged_arr_ub, _merged_arr_lb)
+                _merged_arr_s_lb = np.where(veh_best_response[p_traj_l][1]['utils'] < lower_bound_safety_matrix['utils'], veh_best_response[p_traj_l][1], lower_bound_safety_matrix)
+                veh_best_response[p_traj_l] = (_merged_arr_ub, _merged_arr_lb, _merged_arr_s_lb)
+                
         '''
         if len(veh_best_response) < 2:
             node.equilibrium_solutions = None
@@ -722,12 +898,12 @@ class SatisficingEquilibria(Equilibria):
                 if eq_strat is not None:
                     eq_solns = []
                     for eq_item in eq_strat:
-                        veh_eq_resp_ub,veh_eq_resp_lb = eq_item[0][0], eq_item[0][1]
-                        peds_eq_resp_ub,peds_eq_resp_lb = eq_item[1][0], eq_item[1][1]
-                        veh_eq_act = (veh_eq_resp_ub[1],veh_eq_resp_lb[1])
-                        veh_eq_utils = (veh_eq_resp_ub[2],veh_eq_resp_lb[2])
-                        peds_eq_act = (peds_eq_resp_ub[1],peds_eq_resp_lb[1])
-                        peds_eq_utils = (peds_eq_resp_ub[2],peds_eq_resp_lb[2])
+                        veh_eq_resp_ub,veh_eq_resp_lb,veh_eq_resp_lb_uspe = eq_item[0][0], eq_item[0][1], eq_item[0][2]
+                        peds_eq_resp_ub,peds_eq_resp_lb,peds_eq_resp_lb_uspe = eq_item[1][0], eq_item[1][1], eq_item[1][2]
+                        veh_eq_act = (veh_eq_resp_ub[1],veh_eq_resp_lb[1],veh_eq_resp_lb_uspe[1])
+                        veh_eq_utils = (veh_eq_resp_ub[2],veh_eq_resp_lb[2],veh_eq_resp_lb_uspe[2])
+                        peds_eq_act = (peds_eq_resp_ub[1],peds_eq_resp_lb[1],peds_eq_resp_lb_uspe[1])
+                        peds_eq_utils = (peds_eq_resp_ub[2],peds_eq_resp_lb[2],peds_eq_resp_lb_uspe[2])
                         eqsoln_obj = EquilibriaSolution(veh_best_response,peds_best_response)
                         eqsoln_obj.set_veh_acts(veh_eq_act)
                         eqsoln_obj.set_peds_acts(peds_eq_act)

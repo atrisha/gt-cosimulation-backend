@@ -9,6 +9,8 @@ from matplotlib import pyplot
 from shapely.geometry import LineString
 import matplotlib.pyplot as plt
 import numpy as np
+import constants
+import rg_constants
 
 
 COLOR = {
@@ -45,6 +47,15 @@ def get_all_level_nodes(node,node_list,tree_level):
         for c in node.children:
             get_all_level_nodes(c,node_list,tree_level)
         return node_list
+
+def get_reasonable_velocities(seg,direction=None):
+    seg_type = constants.SEGMENT_MAP[seg]
+    target_vels = rg_constants.PROCEED_VEL_RANGES[seg_type] 
+    if direction is not None and direction in ['L_W_S','L_W_N'] and seg_type=='exit-lane':
+        target_vels = (target_vels[0]/2,target_vels[1]/2)
+    return target_vels
+    
+
 
 def get_within_node(node_list,ag1_emptrajl,ag2_emptrajl):
     trajl_errs = []

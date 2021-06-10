@@ -7,6 +7,17 @@ Created on May 17, 2021
 import sqlite3
 from shapely.geometry import Polygon, LineString
 
+
+class UnsupportedLatticeException(Exception):
+    def __init__(self,l2_size,l4_size,l6_size):
+        message = 'l2:'+str(l2_size)+', l4:'+str(l4_size)+', l6:'+str(l6_size)            
+        super().__init__(message)
+        
+class UnsupportedAgentObservationException(Exception):
+    
+    def __init__(self,message):
+        super().__init__(message)
+
 class TrajectoryCache:
     
     def __init__(self,init_time,time_range,ag_type,file_id):
@@ -51,6 +62,12 @@ class TrajectoryFragment:
         #math.hypot(self.loaded_traj_frag[0][1] - self.loaded_traj_frag[-1][1], self.loaded_traj_frag[0][2] - self.loaded_traj_frag[-1][2])
         return traj_path.length 
         
+    @property 
+    def total_length(self):
+        traj_path = LineString([(x[1],x[2]) for x in self.loaded_traj])
+        #math.hypot(self.loaded_traj_frag[0][1] - self.loaded_traj_frag[-1][1], self.loaded_traj_frag[0][2] - self.loaded_traj_frag[-1][2])
+        return traj_path.length 
+    
     
     @property
     def is_last(self):

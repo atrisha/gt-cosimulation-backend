@@ -13,11 +13,13 @@ import matplotlib.animation as animation
 import constants
 from maps.States import ScenarioDef
 from equilibrium.game_tree import Actions
+from visualizer.visualizer import plot_traffic_regions
+from rg_visualizer import UniWeberAnalytics
 
 WAIT_ACTIONS = ['yield-to-merging','wait_for_lead_to_cross','wait-for-oncoming','decelerate-to-stop','wait-on-red','wait-for-pedestrian']
 
 class TestVehicleTurn(unittest.TestCase):
-    
+    @unittest.skip
     def test_ws_freeturn(self):
         rt_manv = 'wait-for-oncoming'
         st_manv = 'track_speed'
@@ -200,6 +202,7 @@ class TestVehicleTurn(unittest.TestCase):
         assert len(st_trajs[st_manv]) > 0
         
         plt.figure()
+        
         for traj_obj,traj_list in st_trajs[st_manv].items():
             for traj in traj_list:
                 plt.plot([x[0] for x in traj], [x[3] for x in traj])
@@ -212,13 +215,24 @@ class TestVehicleTurn(unittest.TestCase):
         
         plt.show()
         
-        ''' Just take one example, the one in sel_xx_traj, and show the animation '''
         
+        analytics_obj = UniWeberAnalytics('769')
+        trajs_list = [sel_st_traj,sel_lt_traj]
+        analytics_obj.animate_scene(trajs_list)
+        
+        
+        
+        ''' Just take one example, the one in sel_xx_traj, and show the animation '''
+        '''
         fig, ax = plt.subplots()
-        ax = plt.axes(xlim=(min([x[0] for x in sel_st_traj]+[x[0] for x in sel_lt_traj])-10, max([x[0] for x in sel_st_traj]+[x[0] for x in sel_lt_traj])+10), ylim=(min([x[1] for x in sel_st_traj]+[x[1] for x in sel_lt_traj])-10, max([x[1] for x in sel_st_traj]+[x[1] for x in sel_lt_traj])+10))
+        ax = plt.axes(xlim=(min([x[0] for x in sel_st_traj]+[x[0] for x in sel_st_traj])-10, max([x[0] for x in sel_st_traj]+[x[0] for x in sel_lt_traj])+10), ylim=(min([x[1] for x in sel_st_traj]+[x[1] for x in sel_lt_traj])-10, max([x[1] for x in sel_st_traj]+[x[1] for x in sel_lt_traj])+10))
         line1, = ax.plot([], [], lw=2)
         line2, = ax.plot([], [], lw=2)
-        
+        #plot_traffic_regions(ax)
+        plt.xlim(538780, 538890)
+        plt.ylim(4813970, 4814055)
+        img = plt.imread("D:\\behavior modeling\\background.jpg")
+        ax.imshow(img, extent=[538780, 538890, 4813970, 4814055])
         # initialization function: plot the background of each frame
         def init():
             line1.set_data([], [])
@@ -233,9 +247,9 @@ class TestVehicleTurn(unittest.TestCase):
         
         # call the animator.  blit=True means only re-draw the parts that have changed.
         anim = animation.FuncAnimation(fig, animate, init_func=init,
-                                   frames=len(sel_st_traj), interval=20, blit=True, repeat = False) 
+                                   frames=len(sel_st_traj), interval=100, blit=True, repeat = True) 
         plt.show()
-        
+        '''
 
 class TestScenario(unittest.TestCase):
     
@@ -257,4 +271,6 @@ class TestScenario(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    #unittest.main()
+    test = TestVehicleTurn()
+    test.test_se_leftturn()
