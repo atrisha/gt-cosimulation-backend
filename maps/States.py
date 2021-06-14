@@ -148,7 +148,7 @@ class ScenarioDef:
                     agent2_path,dup_indxs = self._remove_duplicate(agent2_path)
                     agent2_path_segments = [x for idx,x in enumerate(agent2_path_segments) if idx not in dup_indxs]
                     agent_2_attribs = {'x':agent2_res_trunc[0][1], 'y':agent2_res_trunc[0][2], 'velocity':agent2_res_trunc[0][3]/3.6, 'waypoints':agent2_path, 'file_time':start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments, 'direction':agent2_path_gates_dir[-1]}
-                self.agent2 = VehicleState(agent_2_attribs)
+                self.agent = VehicleState(agent_2_attribs)
                 self.all_agent_trajectories = [(x[1],x[2]) for idx,x in enumerate(agent2_res)]
                 
     
@@ -325,5 +325,14 @@ class ScenarioDef:
         
         
                 
-                
+class SyntheticScenarioDef:
+    
+    def __init__(self,self,agent_id, agent_waypoints,agent_waypoint_segments, direction, file_id,initialize_db,start_ts,freq):
+        assert len(agent_waypoints[0]) == 3, "Agent waypoints should contain (x,v,v) information"
+        agent_attribs = {'x':agent_waypoints[0][0], 'y':agent_waypoints[0][1], 'velocity':agent_waypoints[0][2], 'waypoints':agent_waypoints, 'file_time':start_ts, 'id':agent_id, 'waypoint_segments':agent_waypoint_segments, 'direction':direction}
+        self.agent = VehicleState(agent_attribs)
+        
+        
+        
+                       
         
