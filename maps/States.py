@@ -16,7 +16,6 @@ from operator import itemgetter
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import constants, rg_constants
-from winioctlcon import IBM_Magstar_3590
 import all_utils
 import code_utils.utils as rg_utils
 from equilibrium.gametree_objects import UnsupportedLatticeException, UnsupportedAgentObservationException
