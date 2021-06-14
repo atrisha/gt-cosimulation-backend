@@ -327,7 +327,7 @@ class ScenarioDef:
                 
 class SyntheticScenarioDef:
     
-    def __init__(self,self,agent_id, agent_waypoints,agent_waypoint_segments, direction, file_id,initialize_db,start_ts,freq):
+    def __init__(self,agent_id, agent_waypoints,agent_waypoint_segments, direction, file_id,initialize_db,start_ts,freq):
         assert len(agent_waypoints[0]) == 3, "Agent waypoints should contain (x,v,v) information"
         agent_attribs = {'x':agent_waypoints[0][0], 'y':agent_waypoints[0][1], 'velocity':agent_waypoints[0][2], 'waypoints':agent_waypoints, 'file_time':start_ts, 'id':agent_id, 'waypoint_segments':agent_waypoint_segments, 'direction':direction}
         self.agent = VehicleState(agent_attribs)
