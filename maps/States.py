@@ -118,7 +118,7 @@ class ScenarioDef:
                 agent2_path = agent2_path + [(interpolated_track[1],interpolated_track[2])]
                 agent2_path_segments = agent2_path_segments + [agent2_path_segments[-1]] 
                 agent_2_attribs = {'x':agent2_res[0][1], 'y':agent2_res[0][1], 'velocity':agent2_res[0][3]/3.6, 'waypoints':agent2_path, 'file_time':start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments, 'direction':agent2_path_gates_dir[-1]}
-                self.agent2 = VehicleState(agent_2_attribs)
+                self.agent = VehicleState(agent_2_attribs)
                 self.all_agent_trajectories = [(x[1],x[2]) for idx,x in enumerate(agent2_res)]
             else:
                 self.time_crossed = False

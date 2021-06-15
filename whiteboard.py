@@ -339,7 +339,13 @@ def generate_trajectories(vehicle):
         trajectories[action] = motion.all_trajectories
     return trajectories
 
-constants.CURRENT_FILE_ID = '769'
-vehicle = all_utils.utils.setup_vehicle_state(7, 2.002)
-trajs = generate_trajectories(vehicle)
-f=1
+import codecs
+import osm2geojson
+
+with codecs.open('D:\\datasets\\nyc_lanes\\lanes.osm', 'r', encoding='utf-8') as data:
+    xml = data.read()
+
+geojson = osm2geojson.xml2geojson(xml, filter_used_refs=False, log_level='INFO')
+import utm
+d = utm.from_latlon(40.758, -73.8294)
+print(d)

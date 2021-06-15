@@ -270,51 +270,45 @@ def left_turn_interaction_scenarios():
     print('grand total',tot)
     
     
-def left_turn_scenarios():
-    tot = 0
-    for file_id in constants.ALL_FILE_IDS:
-        constants.CURRENT_FILE_ID = file_id
-        conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
-        c = conn.cursor()
-        q_string = "select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_s_1%ln_w_-1%'\
-                    UNION \
-                    select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_s_1%ln_w_-2%' \
-                    UNION \
-                    select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_e_1%ln_s_-1%' \
-                    UNION \
-                    select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_e_1%ln_s_-2%' \
-                    UNION \
-                    select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_w_1%ln_n_-1%' \
-                    UNION \
-                    select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_w_1%ln_n_-2%' \
-                    ;"
-        c.execute(q_string)
-        res = c.fetchall()
-        print(file_id,len(res))
-        tot += len(res)
-    print('Total', tot)
+
     
-def right_turn_scenarios():
+def pedestrian_interaction_scenarios():
     tot = 0
+    all_scenes = []
     for file_id in constants.ALL_FILE_IDS:
         constants.CURRENT_FILE_ID = file_id
         conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
         c = conn.cursor()
-        q_string = "select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_s_4%ln_e_-1%' \
-                    UNION \
-                    select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_s_4%ln_e_-2%' \
-                    UNION \
-                    select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_w_4%ln_s_-1%' \
-                    UNION \
-                    select * from TRAJECTORY_MOVEMENTS WHERE TRAJECTORY_MOVEMENTS.TRAFFIC_SEGMENT_SEQ LIKE '%ln_w_4%ln_s_-2%'"
+        q_string = "SELECT * FROM L1_SOLUTIONS WHERE L1_SOLUTIONS.MODEL_PARMS LIKE '%l3_sampling=BASELINE,%' and model='maxmax';"
         c.execute(q_string)
         res = c.fetchall()
-        print(file_id,len(res))
-        tot += len(res)
+        N = len(res)
+        file_scenes = []
+        for runidx,row in enumerate(res):
+            print('processing',file_id,runidx,'/',N)
+            rule_strat = ast.literal_eval(row[6])
+            row_agid = int(row[1])
+            if len(rule_strat) >0:
+                agidx = None
+                if len(rule_strat) > 0:
+                    for _idx,_es in enumerate(rule_strat[0]):
+                        _thisagid = int(_es[3:6]) if int(_es[6:9]) == 0 else int(_es[6:9])
+                        if _thisagid == row_agid:
+                            agidx = _idx
+                            break
+                    rule_acts = list(set([int(x[agidx][9:11]) for x in rule_strat]))
+                    if 11 in rule_acts:
+                        if row[1] not in [x[1] for x in file_scenes]:
+                            file_scenes.append((row[0],row[1],row[2]))
+                        #print(scenes[-1])
+        tot += len(file_scenes)
+        all_scenes.extend(file_scenes)
+    for sc in all_scenes:
+        print(sc)
     print('Total', tot)
 
 
 
 
 if __name__ == '__main__':
-    left_turn_interaction_scenarios()    
+    pedestrian_interaction_scenarios()

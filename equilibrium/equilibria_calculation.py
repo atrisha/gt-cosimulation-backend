@@ -364,8 +364,6 @@ class AutoStrategyResponse(Equilibria):
 class RobustResponse(Equilibria):
 
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        if node._ext_id == 7:
-            f=1
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         gamma_matrix.reverse()
         ''' agent_1=0 agent_2 = 1'''
@@ -464,7 +462,15 @@ class RobustResponse(Equilibria):
                 else:
                     node.robust_response['agent_2'][j] = None
         
-   
+
+class Ql1Model(Equilibria):
+    
+    def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        precision_parm = 1
+        ''' find the optimal response for both agents. 
+            Create a map of action(trajectory_length) -> probability, based on precision_parm
+            each agent best response to that belief distribution '''
+        
         
 class SatisficingEquilibria(Equilibria):
     
