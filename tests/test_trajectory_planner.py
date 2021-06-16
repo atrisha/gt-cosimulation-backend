@@ -6,6 +6,8 @@ Created on Apr 13, 2021
 import unittest
 from planners.trajectory_planner import TrajectoryPlanner, VehicleTrajectoryPlanner, PedestrianTrajectoryPlanner
 from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints
+from planners.planning_objects import TrajectoryConstraintsFactory
+from maps.States import SyntheticScenarioDef
 import sqlite3
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +20,7 @@ from rg_visualizer import UniWeberAnalytics
 
 WAIT_ACTIONS = ['yield-to-merging','wait_for_lead_to_cross','wait-for-oncoming','decelerate-to-stop','wait-on-red','wait-for-pedestrian']
 
-class TestVehicleTurn(unittest.TestCase):
+class TestVehicleTurn():
     @unittest.skip
     def test_ws_freeturn(self):
         rt_manv = 'wait-for-oncoming'
@@ -251,7 +253,7 @@ class TestVehicleTurn(unittest.TestCase):
         plt.show()
         '''
 
-class TestScenario(unittest.TestCase):
+class TestScenario():
     
     def test_scenario(self):
         
@@ -267,10 +269,38 @@ class TestScenario(unittest.TestCase):
         acts.generate_actions(init_time,agent1_init_vel,agent2_init_vel,time_horizon,True)
         
     
-    
+    def test_scene_769_20(self):
+        
+        scene_def = ScenarioDef(agent_1_id=20, agent_2_id=None,file_id='769',initialize_db=False,start_ts=0,freq=0.5)
+        if scene_def.time_crossed:
+            print('failed')
+            raise Exception()
+        else:
+            ag_obj = scene_def.agent
+        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='track_speed', ag_obj=ag_obj, lead_ag_obj=None)
+        constr.set_limit_constraints()
+        agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver= 'track_speed', mode=None, horizon=6)
+        agent1_motion.generate_trajectory(True)
+        assert hasattr(agent1_motion, 'all_trajectories') and len(agent1_motion.all_trajectories) > 0
+        f=1
+            
+    def test_synthetic(self):
+        occluding_vehicle_initial_speed = 9.981109108284521
+        agent_waypoints = [(538835.8104362666, 4813998.205484587), (538837.0054616176, 4813996.489007992), (538838.2005760442, 4813994.771817474), (538839.3670737282, 4813993.090424765), (538841.0003698844, 4813990.715326011), (538842.407808143, 4813988.626150823), (538843.7656073741, 4813986.498339003)]
+        agent_waypoint_segments = ['l_n_s_r', 'l_n_s_r', 'l_n_s_r', 'l_n_s_r', 'l_n_s_r', 'l_n_s_r', 'l_n_s_r']
+        initialize_db = False
+        freq = 0.5
+        scene_def = SyntheticScenarioDef(-1, occluding_vehicle_initial_speed, agent_waypoints, agent_waypoint_segments, 'L_N_S', 769, initialize_db, 0, freq)
+        ag_obj = scene_def.agent
+             
+        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='track_speed', ag_obj=ag_obj, lead_ag_obj=None)
+        constr.set_limit_constraints()
+        agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver= 'track_speed', mode=None, horizon=6)
+        agent1_motion.generate_trajectory(True)
+        assert hasattr(agent1_motion, 'all_trajectories') and len(agent1_motion.all_trajectories) > 0     
 
 
 if __name__ == '__main__':
     #unittest.main()
-    test = TestVehicleTurn()
-    test.test_se_leftturn()
+    test = TestScenario()
+    test.test_synthetic()

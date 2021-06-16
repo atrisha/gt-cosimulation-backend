@@ -10,7 +10,7 @@ import sqlite3
 import itertools
 from planners.planning_objects import VehicleState, PedestrianState
 import time
-from equilibrium.equilibria_calculation import SatisficingEquilibria, RobustResponse
+from equilibrium.equilibria_calculation import *
 import copy
 from maps.map_info import NYCMapInfo
 from mpl_toolkits.mplot3d import Axes3D
@@ -495,7 +495,7 @@ class Node:
     tree_size = 0
     
     def print_Node(self,last_decision_level,results):
-        node_result = {'uspe':[],'mspe':[],'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
+        node_result = {'uspe':[],'mspe':[],'qlk':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
         if self.level == last_decision_level:
             if hasattr(self, 'emp_path') and self.emp_path:
                 '''
@@ -542,7 +542,24 @@ class Node:
                     for i,resp in enumerate(ag2_resp):
                         if  min(ag2_resp[i].peds_eq_acts) <= ag2_emp_trajl <= max(ag2_resp[i].peds_eq_acts):
                             node_result['ag2_robust'].append(i) 
-                
+                if hasattr(self.parent, 'ql1_response'):
+                    ag1_resp = self.parent.ql1_response['response']['agent_1'][:,0]
+                    for i,resp in enumerate(ag1_resp):
+                        if resp['traj_l'] == ag1_emp_trajl:
+                            node_result['qlk']['ag1'].append((i,1))
+                        else:
+                            _prob = self.parent.ql1_response['distribution']['agent_1'][ag1_emp_trajl][i]
+                            node_result['qlk']['ag1'].append((i,_prob))
+                            
+                    ag2_resp = self.parent.ql1_response['response']['agent_2'][:,0]
+                    for i,resp in enumerate(ag2_resp):
+                        if resp['traj_l'] == ag2_emp_trajl:
+                            node_result['qlk']['ag2'].append((i,1))
+                        else:
+                            _prob = self.parent.ql1_response['distribution']['agent_2'][ag2_emp_trajl][i]
+                            node_result['qlk']['ag2'].append((i,_prob))
+                            
+                    
                 print_str = [str(self.level)]
                 for k,v in node_result.items():
                     print_str.append(k+':'+str(v))
@@ -595,6 +612,23 @@ class Node:
                             for i,resp in enumerate(ag2_resp):
                                 if  min(ag2_resp[i].peds_eq_acts) <= ag2_emp_trajl <= max(ag2_resp[i].peds_eq_acts):
                                     node_result['ag2_robust'].append(i) 
+                        if hasattr(self.parent, 'ql1_response'):
+                            ag1_resp = self.parent.ql1_response['response']['agent_1'][:,0]
+                            for i,resp in enumerate(ag1_resp):
+                                if resp['traj_l'] == ag1_emp_trajl:
+                                    node_result['qlk']['ag1'].append((i,1))
+                                else:
+                                    _prob = self.parent.ql1_response['distribution']['agent_1'][ag1_emp_trajl][i]
+                                    node_result['qlk']['ag1'].append((i,_prob))
+                                    
+                            ag2_resp = self.parent.ql1_response['response']['agent_2'][:,0]
+                            for i,resp in enumerate(ag2_resp):
+                                if resp['traj_l'] == ag2_emp_trajl:
+                                    node_result['qlk']['ag2'].append((i,1))
+                                else:
+                                    _prob = self.parent.ql1_response['distribution']['agent_2'][ag2_emp_trajl][i]
+                                    node_result['qlk']['ag2'].append((i,_prob))
+                            
                 
                         print_str = [str(self.level)]
                         for k,v in node_result.items():
@@ -1063,6 +1097,10 @@ def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
     start_time = time.time()
     gt.solve(RobustResponse(context))
     print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(Ql1Model(context))
+    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    
     gt.scene_def = scene_def
     assign_emp_nodes(gt,gt.scene_def)
     gt.print_tree()
@@ -1083,6 +1121,7 @@ def run_all_scenarios():
     initialize_files = True
     rerun_failed_files = False
     failed_files = []
+    scene_type = 'rt'
     with open(rg_constants.FAILED_FILES_PATH,newline='\n') as csv_file:
         sc_reader = csv.reader(csv_file, delimiter=',')
         for row in sc_reader:
@@ -1098,7 +1137,11 @@ def run_all_scenarios():
         for row in sc_reader:
             inp_file_id = sys.argv[1]
             dbfile_id = row[0]
+            row_sc_type = row[1]
             if int(dbfile_id) != int(inp_file_id):
+                continue
+            if scene_type is not None and scene_type != row_sc_type:
+                print('row',row,'not the scene type...continuing')
                 continue
             if not initialize_files:
                 if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
@@ -1143,7 +1186,11 @@ def run_all_scenarios():
                 print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
                 start_time = time.time()
                 gt.solve(RobustResponse(context))
-                print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                print('solving robust. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                start_time = time.time()
+                gt.solve(Ql1Model(context))
+                print('solving qlk. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    
                 gt.scene_def = scene_def
                 gt.maneuver_constraints = None
                 pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'), gt)
@@ -1464,9 +1511,9 @@ def main():
     run_all_scenarios()
     
 if __name__ == '__main__':
-    run_one_scenario(dbfile_id='769', agent1_id=8, agent2_id=1, start_ts=0, initialize_db=True, freq=0.5)
+    #run_one_scenario(dbfile_id='769', agent1_id=8, agent2_id=20, start_ts=0, initialize_db=False, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
     #plot_all_results()
-    #run_all_scenarios()
+    run_all_scenarios()
     #results_all_scenarios()
     

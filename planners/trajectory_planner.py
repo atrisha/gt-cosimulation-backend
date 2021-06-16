@@ -577,17 +577,26 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
             #self.cs_v = CubicSpline(time_pts,this_vel_targets)
             ord = min(len(time_pts)-1,3)
             #self.cs_v = UnivariateSpline(time_pts,this_vel_targets,w=np.arange(len(time_pts)+1,1,-1),k=ord)
+            if time_pts[-1] < horizon:
+                _addl_timepts = np.arange(time_pts[-1]+.5,horizon+.5,.5).tolist()
+                _addl_velpts = [this_vel_targets[-1]]*len(_addl_timepts)
+                time_pts += _addl_timepts
+                this_vel_targets += _addl_velpts
             self.cs_v = UnivariateSpline(time_pts,this_vel_targets,k=ord)
             #plt.plot(time_st,[self.cs_v(z) for z in time_st])
             #plt.plot(time_pts,this_vel_targets,'x')
             #plt.show()
-                                
-            if self.show_plots:
-                plt.plot(np.linspace(time_pts[0],time_pts[-1],100),[self.cs_v(x) for x in np.linspace(time_pts[0],time_pts[-1],100)])
-                
+                              
+            
             
             max_vel = self.cs_v(find_maxima_minima(True, self.cs_v, horizon))
             min_vel = self.cs_v(find_maxima_minima(False, self.cs_v, horizon))
+            
+            if self.show_plots:
+                plt.plot(np.linspace(time_pts[0],horizon,100),[self.cs_v(x) for x in np.linspace(time_pts[0],horizon,100)])
+                plt.show()
+                
+            
             if ord > 1:
                 self.cs_a = self.cs_v.derivative(1)
             else:

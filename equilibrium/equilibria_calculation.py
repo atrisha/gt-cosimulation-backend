@@ -154,6 +154,7 @@ class Equilibria:
                 continue
             print('adding contd utils....',ctr,'/',N)
             mean_safe_util_contd = self.calc_extended_util(n.path_from_root['agent_1'], n.path_from_root['agent_2'])
+            #mean_safe_util_contd = 0
             #n.path_from_root['agent_1'].mean_safe_util_contd = mean_safe_util_contd
             #n.path_from_root['agent_2'].mean_safe_util_contd = mean_safe_util_contd
             n.mean_safe_util_contd = mean_safe_util_contd
@@ -470,7 +471,108 @@ class Ql1Model(Equilibria):
         ''' find the optimal response for both agents. 
             Create a map of action(trajectory_length) -> probability, based on precision_parm
             each agent best response to that belief distribution '''
+        gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
+        gamma_matrix.reverse()
+        ''' agent_1=0 agent_2 = 1'''
+        node.ql1_response = {'response':{'agent_1' : np.empty(shape= (gamma_matrix[0].shape[0],1), dtype=object),
+                                'agent_2' : np.empty(shape= (gamma_matrix[1].shape[1],1), dtype=object)},
+                             'distribution':{'agent_1' : None,
+                                'agent_2' : None}}
+        agent1_distr,agent2_distr = dict(), dict()
+            
         
+        #for i in np.arange(node.ql1_response['agent_2'].shape[0]):
+        #    ''' agent_1 private tolerance type is i '''
+        
+        u = Utilities()
+        ag_2_resp = []
+        for ag2_tf in ped_acts:
+            ag_2_resp_per_ag1_act = []
+            for ag1_tf in veh_acts:
+                dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
+                safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+                step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), safe_payoff_for_dist, gamma_matrix[1])
+                if node.level == last_decision_level:
+                    ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd
+                    cont_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                    _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
+                    cont_util = step_util
+                else:
+                    if len(ag2_tf._next_node.children) == 0:
+                        continue
+                    else:
+                        cont_util = ag1_tf._next_node.ql1_response['response']['agent_1']['utils']
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
+                _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
+                _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+                manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
+                traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
+                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
+                ag_2_resp_per_ag1_act.append(_resp_entry)
+            resp_vect = np.array(ag_2_resp_per_ag1_act)
+            resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+            ag_2_resp.append(np.copy(resp_vect_sorted[0,:,:]))
+        resp_vect = np.array(ag_2_resp)
+        resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+        ''' agent 2 is the ql0 agent, therefore this is its response based on maxmax behavior'''
+        node.ql1_response['response']['agent_2'] =  np.copy(resp_vect_sorted[0,:,:])
+        _denom = [x['utils'] for x in resp_vect_sorted]
+        _denom = [np.exp(precision_parm*x) for x in _denom]
+        _denom = sum(_denom)
+        for r in resp_vect_sorted:
+            _tl = r['traj_l'][0,0]
+            _u = r['utils']
+            _prob = np.divide(np.exp(precision_parm*_u),_denom)
+            agent2_distr[_tl] = np.copy(_prob)[0,:]
+        
+        ag_1_resp = []
+        for ag1_tf in veh_acts:
+            ag_1_resp_per_ag2_act = []
+            for ag2_tf in ped_acts:
+                dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
+                safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+                step_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
+                if node.level == last_decision_level:
+                    ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd
+                    cont_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                    _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                    safe_util = np.full(shape=gamma_matrix[0].shape, fill_value=_safe_m)
+                    cont_util = step_util
+                else:
+                    if len(ag1_tf._next_node.children) == 0:
+                        continue
+                    else:
+                        ag1_tf._next_node.ql1_response['response']['agent_2']['utils']
+                        safe_util = np.full(shape=gamma_matrix[0].shape, fill_value=safe_payoff_for_dist)
+                _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=np.record)
+                _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+                manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=ag1_tf.manv)
+                traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = ag1_tf.length)
+                ag2_util_entry_matrix = None 
+                _prob = agent2_distr[ag2_tf.length]
+                _exp_util = np.multiply(_prob, _util_entry_matrix)
+                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _exp_util, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
+                ag_1_resp_per_ag2_act.append(_resp_entry)
+            _sumutil = sum([x['utils'] for x in ag_1_resp_per_ag2_act])
+            resp_vect = ag_1_resp_per_ag2_act[0]
+            resp_vect['utils'] = _sumutil
+            ag_1_resp.append(np.copy(resp_vect))
+        resp_vect = np.array(ag_1_resp)
+        resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+        node.ql1_response['response']['agent_1'] =  np.copy(resp_vect_sorted[0,:,:])
+        _denom = [x['utils'] for x in resp_vect_sorted]
+        _denom = [np.exp(precision_parm*x) for x in _denom]
+        _denom = sum(_denom)
+        for r in resp_vect_sorted:
+            _tl = r['traj_l'][0,0]
+            _u = r['utils']
+            _prob = np.divide(np.exp(precision_parm*_u),_denom)
+            agent1_distr[_tl] = np.copy(_prob)[:,0]
+        node.ql1_response['distribution']['agent_1'] = agent1_distr
+        node.ql1_response['distribution']['agent_2'] = agent2_distr
+        f=1
+            
         
 class SatisficingEquilibria(Equilibria):
     
