@@ -57,12 +57,12 @@ class TrajectoryConstraintsFactory:
     @staticmethod
     def get_constraint_object(maneuver,ag_obj,lead_ag_obj):
         if maneuver == 'track_speed':
-            vel_pts_proc = [(ag_obj.velocity,)] + [(None,) if i != len(np.arange(1,len(ag_obj.waypoints)-1))//2 else rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[i], ag_obj.direction) for i in np.arange(1,len(ag_obj.waypoints)-1)] + [rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[-1], ag_obj.direction)]
+            vel_pts_proc = [(ag_obj.velocity,)] + [(None,) if i != len(np.arange(1,len(ag_obj.waypoints)-1))//2 else rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[i], ag_obj.direction, ag_obj) for i in np.arange(1,len(ag_obj.waypoints)-1)] + [rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[-1], ag_obj.direction, ag_obj)]
             constr = ProceedTrajectoryConstraints(waypoints=ag_obj.waypoints,waypoint_vel_sampling_range=vel_pts_proc)
         elif maneuver in constants.WAIT_ACTIONS:
-            constr = WaitTrajectoryConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints,stop_horizon_dist_sampling_range=(0.5,5),stop_horizon_time_sampling_range=(0.5,3))
+            constr = WaitTrajectoryConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints,stop_horizon_dist_sampling_range=(0,5),stop_horizon_time_sampling_range=(0,3))
         elif maneuver == 'proceed-turn':
-            vel_pts_proc = [(ag_obj.velocity,)] + [(None,) if i != len(np.arange(1,len(ag_obj.waypoints)-1))//2 else rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[i], ag_obj.direction) for i in np.arange(1,len(ag_obj.waypoints)-1)] + [rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[-1], ag_obj.direction)]
+            vel_pts_proc = [(ag_obj.velocity,)] + [(None,) if i != len(np.arange(1,len(ag_obj.waypoints)-1))//2 else rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[i], ag_obj.direction, ag_obj) for i in np.arange(1,len(ag_obj.waypoints)-1)] + [rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[-1], ag_obj.direction, ag_obj)]
             constr = ProceedTrajectoryConstraints(waypoints=ag_obj.waypoints,waypoint_vel_sampling_range=vel_pts_proc)
         elif maneuver in ['follow_lead','follow_lead_into_intersection']:   
             _min_dist_2_lead = [math.hypot(lead_ag_obj.waypoints[0][0]-x[0],lead_ag_obj.waypoints[0][1]-x[1]) for x in ag_obj.waypoints]
@@ -91,7 +91,7 @@ class TrajectoryConstraintsFactory:
             _mididx = int(len(ag_obj.waypoints)//2)
             _newpath = utils.add_parallel(ag_obj.waypoints[_mididx:], 3)[0]
             ag_obj.waypoints = ag_obj.waypoints[:_mididx] + _newpath
-            vel_pts_proc = [(ag_obj.velocity,)] + [(None,) if i != len(np.arange(1,len(ag_obj.waypoints)-1))//2 else rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[i], ag_obj.direction) for i in np.arange(1,len(ag_obj.waypoints)-1)] + [rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[-1], ag_obj.direction)]
+            vel_pts_proc = [(ag_obj.velocity,)] + [(None,) if i != len(np.arange(1,len(ag_obj.waypoints)-1))//2 else rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[i], ag_obj.direction, ag_obj) for i in np.arange(1,len(ag_obj.waypoints)-1)] + [rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[-1], ag_obj.direction, ag_obj)]
             constr = ProceedTrajectoryConstraints(waypoints=ag_obj.waypoints,waypoint_vel_sampling_range=vel_pts_proc)
         else:   
             raise UnsupportedManeuverException(maneuver)

@@ -246,6 +246,14 @@ class AutoStrategyResponse(Equilibria):
                 #if np.isnan(cont_util).any():
                 #    continue
                 _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+                if ag1_tf._next_node is not None:
+                    if hasattr(ag1_tf._next_node, 'util_info'):
+                        if 'auto_resp' not in ag1_tf._next_node.util_info:
+                            ag1_tf._next_node.util_info['auto_resp'] = _util_entry_matrix
+                    else:
+                        ag1_tf._next_node.util_info = dict()
+                        ag1_tf._next_node.util_info['auto_resp'] = _util_entry_matrix
+                        
                 manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
                 traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
                 _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
@@ -493,8 +501,8 @@ class Ql1Model(Equilibria):
                 safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
                 step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), safe_payoff_for_dist, gamma_matrix[1])
                 if node.level == last_decision_level:
-                    ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd
-                    cont_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                    ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd
+                    cont_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), ext_safe_utils, gamma_matrix[0])
                     _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
                     safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                     cont_util = step_util
@@ -502,10 +510,18 @@ class Ql1Model(Equilibria):
                     if len(ag2_tf._next_node.children) == 0:
                         continue
                     else:
-                        cont_util = ag1_tf._next_node.ql1_response['response']['agent_1']['utils']
+                        cont_util = ag2_tf._next_node.ql1_response['response']['agent_2']['utils']
                         safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
                 _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
                 _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+                if ag1_tf._next_node is not None:
+                    if hasattr(ag1_tf._next_node, 'util_info'):
+                        if 'ql1' not in ag1_tf._next_node.util_info:
+                            ag1_tf._next_node.util_info['ql1'] = _util_entry_matrix
+                    else:
+                        ag1_tf._next_node.util_info = dict()
+                        ag1_tf._next_node.util_info['ql1'] = _util_entry_matrix
+                
                 manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
                 traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
                 _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
@@ -543,7 +559,7 @@ class Ql1Model(Equilibria):
                     if len(ag1_tf._next_node.children) == 0:
                         continue
                     else:
-                        ag1_tf._next_node.ql1_response['response']['agent_2']['utils']
+                        cont_util = ag1_tf._next_node.ql1_response['response']['agent_1']['utils']
                         safe_util = np.full(shape=gamma_matrix[0].shape, fill_value=safe_payoff_for_dist)
                 _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=np.record)
                 _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )

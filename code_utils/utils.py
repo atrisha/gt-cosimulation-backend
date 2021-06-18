@@ -48,11 +48,13 @@ def get_all_level_nodes(node,node_list,tree_level):
             get_all_level_nodes(c,node_list,tree_level)
         return node_list
 
-def get_reasonable_velocities(seg,direction=None):
+def get_reasonable_velocities(seg,direction=None,ag_obj=None):
     seg_type = constants.SEGMENT_MAP[seg]
     target_vels = rg_constants.PROCEED_VEL_RANGES[seg_type] 
     if direction is not None and direction in ['L_W_S','L_W_N'] and seg_type=='exit-lane':
         target_vels = (target_vels[0]/2,target_vels[1]/2)
+    if ag_obj is not None and ag_obj.velocity < 0.5:
+        target_vels = (0.5,target_vels[1]/2)
     return target_vels
     
 

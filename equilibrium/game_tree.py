@@ -496,6 +496,7 @@ class Node:
     
     def print_Node(self,last_decision_level,results):
         node_result = {'uspe':[],'mspe':[],'qlk':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
+        util_residuals = {'uspe':[],'mspe':[],'qlk':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
         if self.level == last_decision_level:
             if hasattr(self, 'emp_path') and self.emp_path:
                 '''
@@ -516,6 +517,17 @@ class Node:
                         for j in np.arange(self.on_uspe.shape[1]):
                             if self.on_uspe[i,j]:
                                 node_result['uspe'].append((i,j))
+                for i in np.arange(self._parent.equilibrium_solutions.shape[0]):
+                    for j in np.arange(self._parent.equilibrium_solutions.shape[1]):
+                        this_ag1_utils = [x.veh_br_map[ag2_emp_trajl][i,j]['utils'] for x in self._parent.equilibrium_solutions[i,j]]
+                        eq_ag1_utils = [x.veh_eq_utils[0] for x in self._parent.equilibrium_solutions[i,j]]
+                        ag1_utilsdiff = min([x[0]-x[1] for x in zip(this_ag1_utils,eq_ag1_utils)])
+                        this_ag2_utils = [x.peds_br_map[ag1_emp_trajl][i,j]['utils'] for x in self._parent.equilibrium_solutions[i,j]]
+                        eq_ag2_utils = [x.peds_eq_utils[0] for x in self._parent.equilibrium_solutions[i,j]]
+                        ag2_utilsdiff = min([x[0]-x[1] for x in zip(this_ag2_utils,eq_ag2_utils)])
+                        util_residuals['uspe'].append(ag1_utilsdiff,ag2_utilsdiff)
+                        util_residuals['mspe'].append(ag1_utilsdiff,ag2_utilsdiff)
+                        
                 
                 if hasattr(self, 'automata_strategy_info'):
                     node_result['ag1_ac'] = self.automata_strategy_info['agent_1']['ac_auto_gamma'],
@@ -528,6 +540,7 @@ class Node:
                     for i,resp in enumerate(ag1_resp):
                         if  min(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']) <= ag1_emp_trajl <= max(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']):
                             node_result['ag1_auto_resp'].append(i)
+                        #util_residuals['ag1_auto_resp'].append((ag1_resp[i]['utils']-,))
                     ag2_resp = self.parent.auto_strategy_response['agent_2'][0][0,:]
                     ag2_resp_min = self.parent.auto_strategy_response['agent_2'][1][0,:]
                     for i,resp in enumerate(ag2_resp):
@@ -637,38 +650,7 @@ class Node:
                         if self.level not in results:
                             results[self.level] = []
                         results[self.level].append({'node_result':node_result,'node':self})
-        '''        
-        if self.level == last_decision_level:
-            if all(x==[x.manv for x in self.actions['agent_1']][0] for x in [x.manv for x in self.actions['agent_1']]):
-                ag1_alleq = True
-            else:
-                ag1_alleq = False
-            if all(x==[x.manv for x in self.actions['agent_2']][0] for x in [x.manv for x in self.actions['agent_2']]):
-                ag2_alleq = True
-            else:
-                ag2_alleq = False
-            try:
-                print(self._ext_id,ag1_alleq,ag2_alleq,self.level, self.auto_strategy_response['agent_1'][0][2,2]['traj_l'] if 'agent_1' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].veh_eq_acts[0] if self.equilibrium_solutions[2,2] is not None else 'None', self.robust_response['agent_1'][2][0].veh_eq_acts[0] if self.robust_response is not None and 'agent_1' in self.robust_response else 'None',
-                  self.auto_strategy_response['agent_2'][0][2,2]['traj_l'] if 'agent_2' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].peds_eq_acts[0] if self.equilibrium_solutions[2,2] is not None else 'None', self.robust_response['agent_2'][2][0].peds_eq_acts[0] if self.robust_response is not None and 'agent_2' in self.robust_response else 'None')
-            except AttributeError:
-                f=1
-                raise
-        else:
-            if not self.is_leaf: 
-                for c in self.children:
-                    c.print_Node(last_decision_level)
-                if all(x==[x.manv for x in self.actions['agent_1']][0] for x in [x.manv for x in self.actions['agent_1']]):
-                    ag1_alleq = True
-                else:
-                    ag1_alleq = False
-                if all(x==[x.manv for x in self.actions['agent_2']][0] for x in [x.manv for x in self.actions['agent_2']]):
-                    ag2_alleq = True
-                else:
-                    ag2_alleq = False
-            
-                print(self._ext_id,ag1_alleq,ag2_alleq,self.level, self.auto_strategy_response['agent_1'][0][2,2]['traj_l'] if 'agent_1' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].veh_eq_acts[0] if self.equilibrium_solutions[2,2] is not None and self.equilibrium_solutions[2,2][0] is not None else 'None', self.robust_response['agent_1'][2][0].veh_eq_acts[0] if self.robust_response is not None and 'agent_1' in self.robust_response else 'None',
-                  self.auto_strategy_response['agent_2'][0][2,2]['traj_l'] if 'agent_2' in self.auto_strategy_response else 'None', self.equilibrium_solutions[2,2][0].peds_eq_acts[0] if self.equilibrium_solutions[2,2] is not None else 'None', self.robust_response['agent_2'][2][0].peds_eq_acts[0] if self.robust_response is not None and 'agent_2' in self.robust_response else 'None')
-        '''
+        
     def __init__(self,level, path_from_root,_ext_id,tree_link):
         self.level = level
         self.path_from_root = path_from_root
@@ -1258,14 +1240,16 @@ def assign_emp_nodes(gt,scene_def):
         
 
 def results_all_scenarios():
+    regenerate = True
     with open(rg_constants.SCENE_OUT_PATH,newline='\n') as csv_file:
         sc_reader = csv.reader(csv_file, delimiter=',')
         line_count = 0
         for row in sc_reader:
             if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
-                if os.path.isfile(os.path.join(rg_constants.RESULTS_FILES,'_'.join(row).replace('.',',')+'.results')):
-                    print('row',row,'processed...continuing')
-                    continue
+                if not regenerate:
+                    if os.path.isfile(os.path.join(rg_constants.RESULTS_FILES,'_'.join(row).replace('.',',')+'.results')):
+                        print('row',row,'processed...continuing')
+                        continue
                 print('row',row,'processing..')
                 dbfile_id = row[0]
                 agent1_id = int(row[3])
@@ -1286,9 +1270,9 @@ def results_all_scenarios():
             
 
 def plot_all_results():
-    hit_ct = {'uspe':0,'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0}  
-    range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[]}
-    value_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[]}
+    hit_ct = {'uspe':0,'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0,'qlk':0}  
+    range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'qlk':[]}
+    value_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'qlk':[]}
     line_count = 0
     resultfiles = [f for f in listdir(rg_constants.RESULTS_FILES) if isfile(join(rg_constants.RESULTS_FILES, f))]
     for resfile_name in resultfiles:
@@ -1343,6 +1327,18 @@ def plot_all_results():
                     hit_ct['robust'] += 0.5
                     range_var['robust'].append(len(node_res['ag2_robust']))
                     value_var['robust'] += node_res['ag2_robust']
+                if len(node_res['qlk']['ag1']) >0 and len(node_res['qlk']['ag2']) >0:
+                    _ag1_br = [1 if x[1]==1 else 0 for x in node_res['qlk']['ag1']]
+                    _ag2_br = [1 if x[1]==1 else 0 for x in node_res['qlk']['ag2']]
+                    if max(_ag1_br) == 1:
+                        hit_ct['qlk'] += 0.5
+                    if max(_ag2_br) == 1:
+                        hit_ct['qlk'] += 0.5
+                    #hit_ct['qlk'] += max(_ag1_br + [x[1] for x in node_res['qlk']['ag2']])
+                    #range_var['qlk'].append(min(len(_ag1_br),len(node_res['qlk']['ag2'])))
+                    range_var['qlk'].append(_ag1_br.count(1) + _ag2_br.count(1))
+                    #value_var['qlk'] += [x for x in _ag1_br if x in node_res['qlk']['ag2']]
+                    value_var['qlk'] += [[x for x in _ag1_br if x == 1] + [x for x in _ag2_br if x == 1]]
                 if len(node_res['mspe']) > 0:
                     hit_ct['mspe'] += 1
                     print('mspe')
@@ -1361,6 +1357,7 @@ def plot_all_results():
                     print('uspe')
                     print(list(set([x[0] for x in node_res['uspe']])))
                     print(list(set([x[1] for x in node_res['uspe']])))
+                
                 '''    
                 if node_res['mspe'] is not False:
                     hit_ct['mspe'] += 1
@@ -1405,7 +1402,7 @@ def plot_all_results():
     print('---values---')
     _x,_sd = [],[]
     for k,v in value_var.items():
-        if k == 'auto_resp' or k == 'uspe' or k == 'mspe' or k == 'robust':
+        if k == 'auto_resp' or k == 'uspe' or k == 'mspe' or k == 'robust' or k=='qlk':
             v = [-1 + (x*0.5) for x in v]
         print(k,np.mean(v),np.std(v),np.min(v),np.max(v))
         
@@ -1514,6 +1511,6 @@ if __name__ == '__main__':
     #run_one_scenario(dbfile_id='769', agent1_id=8, agent2_id=20, start_ts=0, initialize_db=False, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
     #plot_all_results()
-    run_all_scenarios()
-    #results_all_scenarios()
+    #run_all_scenarios()
+    results_all_scenarios()
     
