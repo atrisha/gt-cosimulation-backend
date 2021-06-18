@@ -192,6 +192,10 @@ class Equilibria:
 class AutoStrategyResponse(Equilibria):
     
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        if len(veh_acts) == len(ped_acts):
+            print('same')
+        else:
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DIFFERENT')
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         gamma_matrix.reverse()
         self.gamma_matrix = gamma_matrix
@@ -373,6 +377,11 @@ class AutoStrategyResponse(Equilibria):
 class RobustResponse(Equilibria):
 
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        if len(veh_acts) == len(ped_acts):
+            print('same')
+        else:
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DIFFERENT')
+        
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         gamma_matrix.reverse()
         ''' agent_1=0 agent_2 = 1'''
@@ -475,6 +484,11 @@ class RobustResponse(Equilibria):
 class Ql1Model(Equilibria):
     
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        if len(veh_acts) == len(ped_acts):
+            print('same')
+        else:
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DIFFERENT')
+        
         precision_parm = 1
         ''' find the optimal response for both agents. 
             Create a map of action(trajectory_length) -> probability, based on precision_parm
@@ -651,8 +665,11 @@ class SatisficingEquilibria(Equilibria):
         
     
     def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        if node._ext_id == 7:
-            f=1
+        if len(veh_acts) == len(ped_acts):
+            print('same')
+        else:
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DIFFERENT')
+        
         type(node).progress_ctr += 1
         #print('processing node level',node.level,'id:',node._ext_id)
         print('solving node',type(node).progress_ctr,'/',type(node).tree_size)

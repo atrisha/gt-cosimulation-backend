@@ -365,6 +365,7 @@ class TrajectoryPlanner:
                 traj.append((tx,self.traj_constr_obj.waypoints[0][0],self.traj_constr_obj.waypoints[0][1],0,0,0,0,yaw))
             all_trajs['aggressive'] = list(traj)
             all_trajs['normal'] = list(traj)
+            self.all_trajectories = all_trajs
             return all_trajs
         if isinstance(self.traj_constr_obj, ProceedTrajectoryConstraints):
             self.build_velocity_lattice(self.traj_constr_obj.waypoint_vel_sampling_range)

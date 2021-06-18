@@ -1508,9 +1508,9 @@ def main():
     run_all_scenarios()
     
 if __name__ == '__main__':
-    #run_one_scenario(dbfile_id='769', agent1_id=8, agent2_id=20, start_ts=0, initialize_db=False, freq=0.5)
+    run_one_scenario(dbfile_id='769', agent1_id=8, agent2_id=20, start_ts=0, initialize_db=False, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
     #plot_all_results()
     #run_all_scenarios()
-    results_all_scenarios()
+    #results_all_scenarios()
     
