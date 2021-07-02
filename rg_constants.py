@@ -3,11 +3,14 @@ Created on May 12, 2021
 
 @author: Atrisha
 '''
+import constants
+import os
 
 SCENE_OUT_PATH = 'D:\\repeated_games_data\\intersection_dataset\\scenario_files.csv'
 FAILED_FILES_PATH = 'D:\\repeated_games_data\\intersection_dataset\\failed_scenario_files.csv'
 TREE_FILES = 'D:\\repeated_games_data\\intersection_dataset\\game_trees'
 RESULTS_FILES = 'D:\\repeated_games_data\\intersection_dataset\\results'
+UNI_WEBER_DB_HOME = "D:\\intersections_dataset\\dataset\\"
 
 PROCEED_VEL_RANGES = {'prep-left-turn':(0.5,12),
                       'exec-left-turn':(0.5,12),
@@ -18,3 +21,7 @@ PROCEED_VEL_RANGES = {'prep-left-turn':(0.5,12),
                       'through-lane-entry':(5,17),
                       'through-lane':(5,17),
                       'right-turn-lane':(5,17)}
+def get_db_path(file_id = None):
+    uni_weber_db_fileid = constants.CURRENT_FILE_ID if file_id is None else file_id
+    uni_weber_dbpath = os.path.join(UNI_WEBER_DB_HOME,uni_weber_db_fileid,'uni_weber_'+uni_weber_db_fileid+'.db')
+    return uni_weber_dbpath

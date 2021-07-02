@@ -23,7 +23,7 @@ from equilibrium.gametree_objects import UnsupportedLatticeException, Unsupporte
 class ScenarioDef:
     
     def _setup_1shotrepo_state(self,veh_track):
-        conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
+        conn = sqlite3.connect(rg_constants.get_db_path())
         c = conn.cursor()
         oneshot_vehstate = OneshotRepoVehicleState()
         oneshot_vehstate.id = veh_track[0][0]
@@ -89,7 +89,7 @@ class ScenarioDef:
         self.freq = freq
         self.horizon = int(3/self.freq)
         constants.CURRENT_FILE_ID = file_id
-        conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
+        conn = sqlite3.connect(rg_constants.get_db_path())
         ''' Get the track of a representative straight through vehicle to construct a path centerline '''
         q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_0"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_2_id)+" AND TIME >= "+str(start_ts)+"  ORDER BY TIME"
         c = conn.cursor()
@@ -157,7 +157,7 @@ class ScenarioDef:
         self.freq = freq
         self.horizon = int(3/self.freq)
         constants.CURRENT_FILE_ID = file_id
-        conn = sqlite3.connect('D:\\intersections_dataset\\dataset\\'+constants.CURRENT_FILE_ID+'\\uni_weber_'+constants.CURRENT_FILE_ID+'.db')
+        conn = sqlite3.connect(rg_constants.get_db_path())
         c = conn.cursor()
         q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_0"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_1_id)+" AND TIME >= "+str(start_ts)+" ORDER BY TIME"
         c.execute(q_string)
