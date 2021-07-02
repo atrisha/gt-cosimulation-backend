@@ -360,11 +360,11 @@ class TrajectoryPlanner:
         if self.v0 == 0 and isinstance(self.traj_constr_obj, WaitTrajectoryConstraints):
             yaw = math.atan2(self.cs_y.derivative()(0), self.cs_x.derivative()(0))
             traj = []
-            all_trajs = dict()
+            all_trajs = {'aggressive':[],'normal':[]}
             for tx in np.arange(0,self.horizon+0.1,.1):
                 traj.append((tx,self.traj_constr_obj.waypoints[0][0],self.traj_constr_obj.waypoints[0][1],0,0,0,0,yaw))
-            all_trajs['aggressive'] = list(traj)
-            all_trajs['normal'] = list(traj)
+            all_trajs['aggressive'].append(list(traj))
+            all_trajs['normal'].append(list(traj))
             self.all_trajectories = all_trajs
             return all_trajs
         if isinstance(self.traj_constr_obj, ProceedTrajectoryConstraints):

@@ -519,14 +519,14 @@ class Node:
                                 node_result['uspe'].append((i,j))
                 for i in np.arange(self._parent.equilibrium_solutions.shape[0]):
                     for j in np.arange(self._parent.equilibrium_solutions.shape[1]):
-                        this_ag1_utils = [x.veh_br_map[ag2_emp_trajl][i,j]['utils'] for x in self._parent.equilibrium_solutions[i,j]]
-                        eq_ag1_utils = [x.veh_eq_utils[0] for x in self._parent.equilibrium_solutions[i,j]]
-                        ag1_utilsdiff = min([x[0]-x[1] for x in zip(this_ag1_utils,eq_ag1_utils)])
-                        this_ag2_utils = [x.peds_br_map[ag1_emp_trajl][i,j]['utils'] for x in self._parent.equilibrium_solutions[i,j]]
-                        eq_ag2_utils = [x.peds_eq_utils[0] for x in self._parent.equilibrium_solutions[i,j]]
-                        ag2_utilsdiff = min([x[0]-x[1] for x in zip(this_ag2_utils,eq_ag2_utils)])
-                        util_residuals['uspe'].append(ag1_utilsdiff,ag2_utilsdiff)
-                        util_residuals['mspe'].append(ag1_utilsdiff,ag2_utilsdiff)
+                        ag1_eq_acts = [x.veh_eq_acts[0] for x in self._parent.equilibrium_solutions[i,j]]
+                        ag2_eq_acts = [x.peds_eq_acts[0] for x in self._parent.equilibrium_solutions[i,j]]
+                        this_ag1_utils = [self._parent.util_info['spe'][(ag1_emp_trajl,x)][0][i,j] for x in ag2_eq_acts]
+                        this_ag2_utils = [self._parent.util_info['spe'][(x,ag2_emp_trajl)][1][i,j] for x in ag1_eq_acts]
+                        ag1_utilsdiff = min([x-y for x,y in itertools.product([x.veh_eq_utils[0] for x in self._parent.equilibrium_solutions[i,j]],this_ag1_utils)])
+                        ag2_utilsdiff = min([x-y for x,y in itertools.product([x.peds_eq_utils[0] for x in self._parent.equilibrium_solutions[i,j]],this_ag2_utils)])
+                        util_residuals['uspe'].append((ag1_utilsdiff,ag2_utilsdiff))
+                        util_residuals['mspe'].append((ag1_utilsdiff,ag2_utilsdiff))
                         
                 
                 if hasattr(self, 'automata_strategy_info'):

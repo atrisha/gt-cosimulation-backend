@@ -208,60 +208,61 @@ class AutoStrategyResponse(Equilibria):
         node.auto_strategy_response = dict()
         interac_dict = OrderedDict()
         ag_2_resp = []
-        for ag1_tf in veh_acts:
-            for ag2_tf in ped_acts:
-                dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
-                safety_payoff = u.calc_safe_payoff(dist_gap)
-                if not node.is_root:
-                    ag1_ac_gamma = node.automata_strategy_info['agent_1']['ac_auto_gamma']
-                    ag1_nac_gamma = node.automata_strategy_info['agent_1']['nac_auto_gamma']
-                else:
-                    ag1_ac_gamma = (-1,1)
-                    ag1_nac_gamma = (-1,1)
-                ag1_tf.is_ac_likely, ag2_tf.is_ac_likely = True,True
-                ag1_tf.is_nac_likely, ag2_tf.is_nac_likely = True,True
-                if ag1_tf.manv == self.run_context.manv_map['agent_1']['proceed'] and not type(ag1_ac_gamma) is bool and(safety_payoff < ag1_ac_gamma[0] or safety_payoff < ag1_ac_gamma[1]):
-                    ag1_tf.is_ac_likely = False
-                if ag1_tf.manv == self.run_context.manv_map['agent_1']['wait'] and not type(ag1_nac_gamma) is bool and (safety_payoff > ag1_nac_gamma[0] or safety_payoff > ag1_nac_gamma[1]):
-                    ag1_tf.is_nac_likely = False
-                '''
-                check the running dynamics and if this action of agent 1 is unlikely based on the running
-                dynamics, then there is no need to respond, since this action will never be taken.
-                '''
-                if (self.run_context.acc_dynamic and not ag1_tf.is_ac_likely) \
-                    and (self.run_context.non_acc_dynamic and not ag1_tf.is_nac_likely):
+        for ag1_tf,ag2_tf in zip(veh_acts,ped_acts):
+            dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
+            safety_payoff = u.calc_safe_payoff(dist_gap)
+            if not node.is_root:
+                ag1_ac_gamma = node.automata_strategy_info['agent_1']['ac_auto_gamma']
+                ag1_nac_gamma = node.automata_strategy_info['agent_1']['nac_auto_gamma']
+            else:
+                ag1_ac_gamma = (-1,1)
+                ag1_nac_gamma = (-1,1)
+            ag1_tf.is_ac_likely, ag2_tf.is_ac_likely = True,True
+            ag1_tf.is_nac_likely, ag2_tf.is_nac_likely = True,True
+            if ag1_tf.manv == self.run_context.manv_map['agent_1']['proceed'] and not type(ag1_ac_gamma) is bool and(safety_payoff < ag1_ac_gamma[0] or safety_payoff < ag1_ac_gamma[1]):
+                ag1_tf.is_ac_likely = False
+            if ag1_tf.manv == self.run_context.manv_map['agent_1']['wait'] and not type(ag1_nac_gamma) is bool and (safety_payoff > ag1_nac_gamma[0] or safety_payoff > ag1_nac_gamma[1]):
+                ag1_tf.is_nac_likely = False
+            '''
+            check the running dynamics and if this action of agent 1 is unlikely based on the running
+            dynamics, then there is no need to respond, since this action will never be taken.
+            '''
+            if (self.run_context.acc_dynamic and not ag1_tf.is_ac_likely) \
+                and (self.run_context.non_acc_dynamic and not ag1_tf.is_nac_likely):
+                continue
+            safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+            step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), safe_payoff_for_dist, gamma_matrix[1])
+            if node.level == last_decision_level:
+                ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd
+                cont_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), ext_safe_utils, gamma_matrix[1])
+                _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
+            else:
+                if len(ag2_tf._next_node.children) == 0:
                     continue
-                safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
-                step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), safe_payoff_for_dist, gamma_matrix[1])
-                if node.level == last_decision_level:
-                    ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd
-                    cont_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), ext_safe_utils, gamma_matrix[1])
-                    _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
-                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                 else:
-                    if len(ag2_tf._next_node.children) == 0:
-                        continue
-                    else:
-                        cont_util = ag2_tf._next_node.auto_strategy_response['agent_2'][0]['utils']
-                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
-                    #cont_util = cont_util.T
-                    #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
-                _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
-                #if np.isnan(cont_util).any():
-                #    continue
-                _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
-                if ag1_tf._next_node is not None:
-                    if hasattr(ag1_tf._next_node, 'util_info'):
-                        if 'auto_resp' not in ag1_tf._next_node.util_info:
-                            ag1_tf._next_node.util_info['auto_resp'] = _util_entry_matrix
-                    else:
-                        ag1_tf._next_node.util_info = dict()
-                        ag1_tf._next_node.util_info['auto_resp'] = _util_entry_matrix
-                        
-                manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
-                traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
-                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
-                ag_2_resp.append(_resp_entry)
+                    cont_util = ag2_tf._next_node.auto_strategy_response['agent_2'][0]['utils']
+                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
+                #cont_util = cont_util.T
+                #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
+            _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
+            #if np.isnan(cont_util).any():
+            #    continue
+            _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+            if ag2_tf._next_node is not None:
+                if hasattr(ag2_tf._next_node, 'util_info'):
+                    if 'auto_resp' not in ag2_tf._next_node.util_info:
+                        ag2_tf._next_node.util_info['auto_resp'] = dict()
+                    ag2_tf._next_node.util_info['auto_resp']['agent_2'] = _util_entry_matrix
+                else:
+                    ag2_tf._next_node.util_info = dict()
+                    ag2_tf._next_node.util_info['auto_resp'] = dict()
+                    ag2_tf._next_node.util_info['auto_resp']['agent_2'] = _util_entry_matrix
+                    
+            manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
+            traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
+            _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
+            ag_2_resp.append(_resp_entry)
         if len(ag_2_resp) == 0:
             self.agent_2_auto_strategy_response = None
         else:
@@ -296,50 +297,59 @@ class AutoStrategyResponse(Equilibria):
             node.auto_strategy_response['agent_2'] = (ag2_upper_bound_matrix,ag2_lower_bound_matrix,ag2_lower_bound_safety_matrix)
         
         ag_1_resp = []
-        for ag2_tf in ped_acts:
-            for ag1_tf in veh_acts:
-                dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
-                safety_payoff = u.calc_safe_payoff(dist_gap)
-                if node.is_root:
-                    ag2_ac_gamma = (-1,1)
-                    ag2_nac_gamma = (-1,1)
-                else:
-                    ag2_ac_gamma = node.automata_strategy_info['agent_2']['ac_auto_gamma']
-                    ag2_nac_gamma = node.automata_strategy_info['agent_2']['nac_auto_gamma']
-                ag2_tf.is_ac_likely, ag1_tf.is_ac_likely = True,True
-                ag2_tf.is_nac_likely, ag1_tf.is_nac_likely = True,True
-                if ag2_tf.manv == self.run_context.manv_map['agent_2']['proceed'] and not type(ag2_ac_gamma) is bool and(safety_payoff < ag2_ac_gamma[0] or safety_payoff < ag2_ac_gamma[1]):
-                    ag2_tf.is_ac_likely = False
-                if ag2_tf.manv == self.run_context.manv_map['agent_2']['wait'] and not type(ag2_nac_gamma) is bool and (safety_payoff > ag2_nac_gamma[0] or safety_payoff > ag2_nac_gamma[1]):
-                    ag2_tf.is_nac_likely = False
-                '''
-                check the running dynamics and if this action of agent 1 is unlikely based on the running
-                dynamics, then there is no need to respond, since this action will never be taken.
-                '''
-                if (self.run_context.acc_dynamic and not ag2_tf.is_ac_likely) \
-                    and (self.run_context.non_acc_dynamic and not ag2_tf.is_nac_likely):
+        for ag2_tf,ag1_tf in zip(ped_acts,veh_acts):
+            dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
+            safety_payoff = u.calc_safe_payoff(dist_gap)
+            if node.is_root:
+                ag2_ac_gamma = (-1,1)
+                ag2_nac_gamma = (-1,1)
+            else:
+                ag2_ac_gamma = node.automata_strategy_info['agent_2']['ac_auto_gamma']
+                ag2_nac_gamma = node.automata_strategy_info['agent_2']['nac_auto_gamma']
+            ag2_tf.is_ac_likely, ag1_tf.is_ac_likely = True,True
+            ag2_tf.is_nac_likely, ag1_tf.is_nac_likely = True,True
+            if ag2_tf.manv == self.run_context.manv_map['agent_2']['proceed'] and not type(ag2_ac_gamma) is bool and(safety_payoff < ag2_ac_gamma[0] or safety_payoff < ag2_ac_gamma[1]):
+                ag2_tf.is_ac_likely = False
+            if ag2_tf.manv == self.run_context.manv_map['agent_2']['wait'] and not type(ag2_nac_gamma) is bool and (safety_payoff > ag2_nac_gamma[0] or safety_payoff > ag2_nac_gamma[1]):
+                ag2_tf.is_nac_likely = False
+            '''
+            check the running dynamics and if this action of agent 1 is unlikely based on the running
+            dynamics, then there is no need to respond, since this action will never be taken.
+            '''
+            if (self.run_context.acc_dynamic and not ag2_tf.is_ac_likely) \
+                and (self.run_context.non_acc_dynamic and not ag2_tf.is_nac_likely):
+                continue
+            safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+            step_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
+            if node.level == last_decision_level:
+                ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd
+                cont_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
+            else:
+                if len(ag1_tf._next_node.children) == 0:
                     continue
-                safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
-                step_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
-                if node.level == last_decision_level:
-                    ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd
-                    cont_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), ext_safe_utils, gamma_matrix[0])
-                    _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
-                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                 else:
-                    if len(ag1_tf._next_node.children) == 0:
-                        continue
-                    else:
-                        cont_util = ag1_tf._next_node.auto_strategy_response['agent_1'][0]['utils']
-                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
-                _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=np.record)
-                #if np.isnan(cont_util).any():
-                #    continue
-                _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
-                manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=ag1_tf.manv)
-                traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = ag1_tf.length)
-                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
-                ag_1_resp.append(_resp_entry)
+                    cont_util = ag1_tf._next_node.auto_strategy_response['agent_1'][0]['utils']
+                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
+            _resp_entry = np.empty(shape= gamma_matrix[0].shape, dtype=np.record)
+            #if np.isnan(cont_util).any():
+            #    continue
+            _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+            if ag1_tf._next_node is not None:
+                if hasattr(ag1_tf._next_node, 'util_info'):
+                    if 'auto_resp' not in ag1_tf._next_node.util_info:
+                        ag1_tf._next_node.util_info['auto_resp'] = dict()
+                    ag1_tf._next_node.util_info['auto_resp']['agent_1'] = _util_entry_matrix
+                else:
+                    ag1_tf._next_node.util_info = dict()
+                    ag1_tf._next_node.util_info['auto_resp'] = dict()
+                    ag1_tf._next_node.util_info['auto_resp']['agent_1'] = _util_entry_matrix
+        
+            manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=ag1_tf.manv)
+            traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = ag1_tf.length)
+            _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
+            ag_1_resp.append(_resp_entry)
         if len(ag_1_resp) == 0:
             self.agent_1_auto_strategy_response = None
         else:
@@ -377,16 +387,13 @@ class AutoStrategyResponse(Equilibria):
 class RobustResponse(Equilibria):
 
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        if len(veh_acts) == len(ped_acts):
-            print('same')
-        else:
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DIFFERENT')
         
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         gamma_matrix.reverse()
         ''' agent_1=0 agent_2 = 1'''
         node.robust_response = {'agent_1' : np.empty(shape= (gamma_matrix[0].shape[0],1), dtype=object),
                                 'agent_2' : np.empty(shape= (gamma_matrix[1].shape[1],1), dtype=object)}
+        node.robust_response_type = dict()
         for i in np.arange(node.robust_response['agent_1'].shape[0]):
             ''' agent_1 private tolerance type is i '''
             
@@ -412,6 +419,7 @@ class RobustResponse(Equilibria):
                                 min_idx = (bl_idx,idx)
                 
             soln = EquilibriaSolution(None,None)
+            
             ''' just take the first one because for automata strategy response, all columns are same '''
             if node.auto_strategy_response is not None and len(node.auto_strategy_response)>1:
                 all_auto_resps = (node.auto_strategy_response['agent_1'][0][i,0], node.auto_strategy_response['agent_1'][1][i,0])
@@ -419,20 +427,23 @@ class RobustResponse(Equilibria):
                 soln.veh_eq_utils = (all_auto_resps[0]['utils'],all_auto_resps[1]['utils'])
                 if no_spe:
                     node.robust_response['agent_1'][i] = soln
+                    node.robust_response_type['agent_1'] = 'auto'
                 else:
                     robust_resp_to_spe = all_eq_list[min_idx[0]][min_idx[1]]
                     node.robust_response['agent_1'][i] = soln if soln.veh_eq_utils[0] < robust_resp_to_spe.veh_eq_utils[0] else copy.copy(robust_resp_to_spe)
                     node.robust_response['agent_1'][i,0].veh_eq_utils = (node.robust_response['agent_1'][i,0].veh_eq_utils[0],soln.veh_eq_utils[1] if soln.veh_eq_utils[1] > robust_resp_to_spe.veh_eq_utils[1] else robust_resp_to_spe.veh_eq_utils[1])
                     node.robust_response['agent_1'][i,0].veh_eq_acts = (node.robust_response['agent_1'][i,0].veh_eq_acts[0],soln.veh_eq_acts[1] if soln.veh_eq_utils[1] > robust_resp_to_spe.veh_eq_utils[1] else robust_resp_to_spe.veh_eq_acts[1])
-                    
+                    node.robust_response_type['agent_1'] = 'auto' if soln.veh_eq_utils[0] < robust_resp_to_spe.veh_eq_utils[0] else 'spe'
                     node.robust_response['agent_1'][i,0].veh_eq_utils = (node.robust_response['agent_1'][i,0].veh_eq_utils[0],node.robust_response['agent_1'][i,0].veh_eq_utils[1] if node.robust_response['agent_1'][i,0].veh_eq_utils[1] > robust_resp_to_spe.veh_eq_utils[2] else robust_resp_to_spe.veh_eq_utils[2])
                     node.robust_response['agent_1'][i,0].veh_eq_acts = (node.robust_response['agent_1'][i,0].veh_eq_acts[0],node.robust_response['agent_1'][i,0].veh_eq_acts[1] if node.robust_response['agent_1'][i,0].veh_eq_utils[1] > robust_resp_to_spe.veh_eq_utils[2] else robust_resp_to_spe.veh_eq_acts[2]) 
             else:
                 if not no_spe and all_eq_list[min_idx[0]] is not None:
                     robust_resp_to_spe = all_eq_list[min_idx[0]][min_idx[1]]
                     node.robust_response['agent_1'][i] = robust_resp_to_spe
+                    node.robust_response_type['agent_1'] = 'spe'
                 else:
                     node.robust_response['agent_1'][i] = None 
+                    node.robust_response_type['agent_1'] = None
             
         for j in np.arange(node.robust_response['agent_2'].shape[0]):
             ''' agent_2 private tolerance type is j '''
@@ -465,29 +476,28 @@ class RobustResponse(Equilibria):
                 soln.peds_eq_utils = (all_auto_resps[0]['utils'],all_auto_resps[1]['utils'])
                 if no_spe:
                     node.robust_response['agent_2'][j] = soln
+                    node.robust_response_type['agent_2'] = 'auto'
                 else:
                     robust_resp_to_spe = all_eq_list[min_idx[0]][min_idx[1]]
                     node.robust_response['agent_2'][j] = soln if soln.peds_eq_utils[0] < robust_resp_to_spe.peds_eq_utils[0] else copy.copy(robust_resp_to_spe)
                     node.robust_response['agent_2'][j,0].peds_eq_utils = (node.robust_response['agent_2'][j,0].peds_eq_utils[0],soln.peds_eq_utils[1] if soln.peds_eq_utils[1] > robust_resp_to_spe.peds_eq_utils[1] else robust_resp_to_spe.peds_eq_utils[1])
                     node.robust_response['agent_2'][j,0].peds_eq_acts = (node.robust_response['agent_2'][j,0].peds_eq_acts[0],soln.peds_eq_acts[1] if soln.peds_eq_utils[1] > robust_resp_to_spe.peds_eq_utils[1] else robust_resp_to_spe.peds_eq_acts[1]) 
-                    
+                    node.robust_response_type['agent_2'] = 'auto' if soln.peds_eq_utils[0] < robust_resp_to_spe.peds_eq_utils[0] else 'spe'
                     node.robust_response['agent_2'][j,0].peds_eq_utils = (node.robust_response['agent_2'][j,0].peds_eq_utils[0],node.robust_response['agent_2'][j,0].peds_eq_utils[1] if node.robust_response['agent_2'][j,0].peds_eq_utils[1] > robust_resp_to_spe.peds_eq_utils[2] else robust_resp_to_spe.peds_eq_utils[2])
                     node.robust_response['agent_2'][j,0].peds_eq_acts = (node.robust_response['agent_2'][j,0].peds_eq_acts[0],node.robust_response['agent_2'][j,0].peds_eq_acts[1] if node.robust_response['agent_2'][j,0].peds_eq_acts[1] > robust_resp_to_spe.peds_eq_utils[2] else robust_resp_to_spe.peds_eq_acts[2]) 
             else:
                 if not no_spe and all_eq_list[min_idx[0]] is not None:
                     robust_resp_to_spe = all_eq_list[min_idx[0]][min_idx[1]]
                     node.robust_response['agent_2'][j] = robust_resp_to_spe
+                    node.robust_response_type['agent_2'] = 'spe'
                 else:
                     node.robust_response['agent_2'][j] = None
+                    node.robust_response_type['agent_2'] = None
         
 
 class Ql1Model(Equilibria):
     
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        if len(veh_acts) == len(ped_acts):
-            print('same')
-        else:
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DIFFERENT')
         
         precision_parm = 1
         ''' find the optimal response for both agents. 
@@ -543,6 +553,15 @@ class Ql1Model(Equilibria):
             resp_vect = np.array(ag_2_resp_per_ag1_act)
             resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
             ag_2_resp.append(np.copy(resp_vect_sorted[0,:,:]))
+            if hasattr(ag2_tf._next_node, 'util_info'):
+                if 'qlk' not in ag2_tf._next_node.util_info:
+                    ag2_tf._next_node.util_info['qlk'] = dict()
+                ag2_tf._next_node.util_info['qlk']['agent_2'] = resp_vect_sorted[0,:,:]['utils']
+            else:
+                ag2_tf._next_node.util_info = dict()
+                ag2_tf._next_node.util_info['qlk'] = dict()
+                ag2_tf._next_node.util_info['qlk']['agent_2'] = resp_vect_sorted[0,:,:]['utils']
+                 
         resp_vect = np.array(ag_2_resp)
         resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
         ''' agent 2 is the ql0 agent, therefore this is its response based on maxmax behavior'''
@@ -586,8 +605,18 @@ class Ql1Model(Equilibria):
                 ag_1_resp_per_ag2_act.append(_resp_entry)
             _sumutil = sum([x['utils'] for x in ag_1_resp_per_ag2_act])
             resp_vect = ag_1_resp_per_ag2_act[0]
-            resp_vect['utils'] = _sumutil
+            resp_vect['utils'] = _sumutil # This is the expected utility since the values have been weighted by probability of other agent's action earlier
             ag_1_resp.append(np.copy(resp_vect))
+            if ag1_tf._next_node is not None:
+                if hasattr(ag1_tf._next_node, 'util_info'):
+                    if 'qlk' not in ag1_tf._next_node.util_info:
+                        ag1_tf._next_node.util_info['qlk'] = dict()
+                    ag1_tf._next_node.util_info['qlk']['agent_1'] = _sumutil
+                else:
+                    ag1_tf._next_node.util_info = dict()
+                    ag1_tf._next_node.util_info['qlk'] = dict()
+                    ag1_tf._next_node.util_info['qlk']['agent_1'] = _sumutil
+        
         resp_vect = np.array(ag_1_resp)
         resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
         node.ql1_response['response']['agent_1'] =  np.copy(resp_vect_sorted[0,:,:])
@@ -665,10 +694,6 @@ class SatisficingEquilibria(Equilibria):
         
     
     def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        if len(veh_acts) == len(ped_acts):
-            print('same')
-        else:
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DIFFERENT')
         
         type(node).progress_ctr += 1
         #print('processing node level',node.level,'id:',node._ext_id)
@@ -678,6 +703,9 @@ class SatisficingEquilibria(Equilibria):
         ''' agent_1=0 agent_2 = 1'''
         #gamma_matrix = [np.linspace(start=-1, stop=1, num=20), np.linspace(start=-1, stop=1, num=20)]
         node.equilibrium_solutions = np.empty(shape= (gamma_matrix[0].shape[0],gamma_matrix[1].shape[0]), dtype=object)
+        if not hasattr(node, 'util_info'):
+            node.util_info = dict()
+        node.util_info['spe'] = dict()
         u = Utilities()
         veh_acts.sort(key=lambda x: x.length)
         ped_acts.sort(key=lambda x: x.length)
@@ -718,6 +746,7 @@ class SatisficingEquilibria(Equilibria):
                         #cont_util = max([max(x.peds_eq_utils) for x in peds_frag._next_node.equilibrium_solutions])
                     _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
                     _util_entry_matrix = np.where(np.isnan(cont_util), cont_util, np.mean(np.array([ cont_util, step_util ]), axis=0 ))
+                    node.util_info['spe'][(v_traj_l,ped_traj_l)] = [None,_util_entry_matrix]
                     if np.isnan(cont_util).all():
                         continue
                     #_util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
@@ -843,6 +872,7 @@ class SatisficingEquilibria(Equilibria):
                         continue
                     
                     #_util_entry_matrix = np.mean( np.array([ cont_util, step_util ]), axis = 0)
+                    node.util_info['spe'][(veh_traj_l,p_traj_l)][0] = _util_entry_matrix
                     manv_str_arr = np.full(shape = gamma_matrix[0].shape, fill_value=manv)
                     traj_l_arr = np.full(shape = gamma_matrix[0].shape, fill_value = veh_traj_l)
                     _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
