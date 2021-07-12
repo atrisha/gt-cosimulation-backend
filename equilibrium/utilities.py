@@ -153,7 +153,10 @@ class Utilities:
         fig.tight_layout()
         
         plt.show() # or:
-        
+
+
+
+       
 if __name__ == '__main__':
     u = Utilities()
     u.plot()

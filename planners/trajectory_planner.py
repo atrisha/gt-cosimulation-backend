@@ -219,6 +219,10 @@ class TrajectoryPlanner:
         self.maneuver = maneuver
         self.mode = mode
         self.horizon = horizon
+        if hasattr(traj_constr_obj, 'parent_trajectory_arcl'):
+            self.parent_trajectory_arcl = traj_constr_obj.parent_trajectory_arcl
+        else:
+            self.parent_trajectory_arcl = 0
     
     def build_velocity_lattice(self,vel_pts_range):
         v_ts = []
@@ -342,14 +346,19 @@ class TrajectoryPlanner:
             self.curvature = lambda x: abs(((xd(x)/yd(x))*(ydd(x)/xd(x)**2) - (yd(x)/xd(x))*(xdd(x)/yd(x)**2))) / np.power((xd(x)/yd(x))** 2 + (yd(x)/xd(x))** 2, 3 / 2)
         else:
             self.curvature = lambda x: 0
-        if self.show_plots:
+        if False:
             plt.figure()
             plt.title('path')
             plt.plot([x_corrected(x) for x in plot_indx_x],[y_corrected(x) for x in plot_indx_x])
+            v = list(zip([x_corrected(x) for x in plot_indx_x],[y_corrected(x) for x in plot_indx_x]))
+            plt.arrow(v[-2][0], v[-2][1],v[-1][0]-v[-2][0] , v[-1][1]-v[-2][1], width=.5)
+            plt.axis('equal')
             plt.plot([x[0] for x in self.centerline],[x[1] for x in self.centerline],'x')
+            
             plt.figure()
             plt.title('curvature')
             plt.plot(plot_indx_x,[self.curvature(x) for x in plot_indx_x])
+            
             plt.show()
         self.indx = indx
         return self.path
@@ -362,7 +371,7 @@ class TrajectoryPlanner:
             traj = []
             all_trajs = {'aggressive':[],'normal':[]}
             for tx in np.arange(0,self.horizon+0.1,.1):
-                traj.append((tx,self.traj_constr_obj.waypoints[0][0],self.traj_constr_obj.waypoints[0][1],0,0,0,0,yaw))
+                traj.append((tx,self.traj_constr_obj.waypoints[0][0],self.traj_constr_obj.waypoints[0][1],0,0,0,0,yaw,self.parent_trajectory_arcl))
             all_trajs['aggressive'].append(list(traj))
             all_trajs['normal'].append(list(traj))
             self.all_trajectories = all_trajs
@@ -402,7 +411,7 @@ class TrajectoryPlanner:
                 time_st = np.arange(0,horizon+.1,.1)
                 if 'target vels' in v:
                     err = self.cs_v(0) - v['target vels'][0]
-                    v_corrected = lambda x : self.cs_v(x) - err
+                    v_corrected = lambda x : abs(self.cs_v(x) - err)
                 else:
                     v_corrected = self.cs_v
                 err_x = self.cs_x(0) - self.centerline[0][0]
@@ -422,9 +431,14 @@ class TrajectoryPlanner:
                         if not stopped_traj:
                             #math.atan2(self.cs_y(s/self.arcl)-traj[-1][2], self.cs_x(s/self.arcl)-traj[-1][1])
                             yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
-                            traj.append((t,x_corrected(s/self.arcl),y_corrected(s/self.arcl),v_corrected(t),self.cs_a(t),self.cs_j(t),(v_corrected(t)**2)*self.curvature(s/self.arcl),yaw))
+                            if s < 0:
+                                plt.plot(time_st,[v_corrected(x) for x in time_st])
+                                plt.plot(time_st,[self.cs_v(x) for x in time_st])
+                                plt.show()
+                                f=1
+                            traj.append((t,x_corrected(s/self.arcl),y_corrected(s/self.arcl),v_corrected(t),self.cs_a(t),self.cs_j(t),(v_corrected(t)**2)*self.curvature(s/self.arcl),yaw,s+self.parent_trajectory_arcl))
                         else:
-                            traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7]))
+                            traj.append((t,traj[-1][1],traj[-1][2],0,0,0,0,traj[-1][7],self.parent_trajectory_arcl))
                     else:
                         break
                 #max_vel,max_acc,max_jerk,max_lat_acc = max([x[3] for x in traj]),max([x[4] for x in traj]),max([x[5] for x in traj]),max([x[6] for x in traj])
@@ -659,7 +673,7 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
         h_end, h_start = self.traj_constr_obj.stop_horizon_time_sampling_range[1], self.traj_constr_obj.stop_horizon_time_sampling_range[0]
         iter_attempts = 0
         while len(self.velocity_profiles) == 0 and iter_attempts < 10:
-            h_end, h_start = h_end+(2*iter_attempts), max(h_start-(2*iter_attempts),1)
+            h_end, h_start = h_end+(2*iter_attempts), max(h_start-(2*iter_attempts),0.1)
             for o_it,o_r in enumerate(np.linspace(h_end, h_start,5)):
                 if self.print_console:
                     print('-------iter',o_it)

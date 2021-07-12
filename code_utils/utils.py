@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import constants
 import rg_constants
-
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.colors as mcolors
 
 COLOR = {
     True:  '#6699cc',
@@ -110,3 +111,55 @@ def lighten_color(color, amount=0.5):
         c = color
     c = colorsys.rgb_to_hls(*mc.to_rgb(c))
     return colorsys.hls_to_rgb(c[0], 1 - amount * (1 - c[1]), c[2])
+
+
+def to_type(idx_list):
+    idx_to_type = {0:-1,1:-0.5,2:0,3:0.5,4:1}
+    return [idx_to_type[x] for x in idx_list]
+
+def make_colormap(seq):
+    """Return a LinearSegmentedColormap
+    seq: a sequence of floats and RGB-tuples. The floats should be increasing
+    and in the interval (0,1).
+    """
+    seq = [(None,) * 3, 0.0] + list(seq) + [1.0, (None,) * 3]
+    cdict = {'red': [], 'green': [], 'blue': []}
+    for i, item in enumerate(seq):
+        if isinstance(item, float):
+            r1, g1, b1 = seq[i - 1]
+            r2, g2, b2 = seq[i + 1]
+            cdict['red'].append([item, r1, r2])
+            cdict['green'].append([item, g1, g2])
+            cdict['blue'].append([item, b1, b2])
+    return mcolors.LinearSegmentedColormap('CustomMap', cdict)
+
+def plot_heatmap(plt,fig,axis,data):
+    data = data.astype(float)
+    c = mcolors.ColorConverter().to_rgb
+    rvb = make_colormap(
+    [c('white'), 0.25,c('red'), c('violet'), c('blue')])
+    rvb = make_colormap(
+    [c('red'), c('violet'), c('blue')])
+    
+    row_labels = ["extreme high",
+              "high",
+              "normal",
+              "low",
+              "extreme low"]
+    heatmap = axis.pcolor(data,cmap=rvb ) # cmap='autumn,'rvb' heatmap contient les valeurs
+    
+    axis.set_yticks(np.arange(data.shape[0])+0.5, minor=False)
+    axis.set_xticks(np.arange(data.shape[1])+0.5, minor=False)
+    
+    axis.invert_yaxis()
+    
+    #axis.set_yticklabels(row_labels, minor=False)
+    #axis.set_xticklabels(column_labels, minor=False)
+    axis.get_xaxis().set_visible(False)
+    axis.spines['top'].set_visible(False)
+    axis.spines['right'].set_visible(False)
+    axis.spines['bottom'].set_visible(False)
+    axis.spines['left'].set_visible(False)
+    axis.get_xaxis().set_ticks([])
+    #fig.set_size_inches(11.03, 3.5)
+    plt.colorbar(heatmap)

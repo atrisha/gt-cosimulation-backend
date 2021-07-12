@@ -6,6 +6,7 @@ Created on May 17, 2021
 
 import sqlite3
 from shapely.geometry import Polygon, LineString
+import rg_constants
 
 
 class UnsupportedLatticeException(Exception):
@@ -21,7 +22,7 @@ class UnsupportedAgentObservationException(Exception):
 class TrajectoryCache:
     
     def __init__(self,init_time,time_range,ag_type,file_id):
-        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+file_id+'.db')
+        conn = sqlite3.connect(rg_constants.get_rg_db_path(file_id))
         c = conn.cursor()
         if ag_type is not None:
             q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID IN ( \
@@ -100,7 +101,7 @@ class TrajectoryFragment:
             if t_cache is not None and t_cache[(self.init_time,self.time_range[0],self.time_range[1])] is not None and self.traj_id in t_cache[(self.init_time,self.time_range[0],self.time_range[1])].traj_cache:
                 res = t_cache[(self.init_time,self.time_range[0],self.time_range[1])].traj_cache[self.traj_id][self.time_range]
             else:
-                conn = sqlite3.connect('D:\\repeated_games_data\\'+file_id+'.db')
+                conn = sqlite3.connect(rg_constants.get_rg_db_path(file_id))
                 c = conn.cursor()
                 q_string = "select * from TRAJECTORIES WHERE TRAJECTORIES.TRACK_ID="+str(self.traj_id)+" AND TRAJECTORIES.TIME BETWEEN "+str(int(self.time_range[0]-self.init_time))+" AND "+str(end_time)+" ORDER BY TIME"
                 c.execute(q_string)

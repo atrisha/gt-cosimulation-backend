@@ -13,7 +13,7 @@ from sklearn.datasets import make_friedman2
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, WhiteKernel
 from equilibrium.gametree_objects import TrajectoryCache, TrajectoryFragment
-
+import rg_constants
         
 show_plots = False
 
@@ -217,7 +217,7 @@ class MinDistanceGapModel:
     def build_agent_trajectories(self,ag_type):
         trajectories = dict()
         trajectories = dict()
-        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
+        conn = sqlite3.connect(rg_constants.get_rg_db_path(self.file_id))
         c = conn.cursor()
         ''' get all vehicle trajectories '''
         q_string = "select TRAJECTORY_METADATA.TRAJ_ID, TRAJECTORY_METADATA.MANEUVER,TRAJECTORY_METADATA.MANEUVER_MODE from TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"'"

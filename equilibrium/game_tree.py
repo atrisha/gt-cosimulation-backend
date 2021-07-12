@@ -32,9 +32,11 @@ from equilibrium.range_estimation import MinDistanceGapModel
 from equilibrium.gametree_objects import TrajectoryCache, TrajectoryFragment, UnsupportedAgentObservationException,UnsupportedLatticeException
 from code_utils.code_util_objects import RunContext
 import all_utils
+import code_utils.utils as rg_utils
 import copy
 from os import listdir
 import matplotlib.pyplot as plt
+import ast
 from rg_visualizer import UniWeberAnalytics
 from os.path import isfile, join
 
@@ -127,13 +129,30 @@ class Actions:
     def __init__(self,maneuver_constraints):
         self.maneuver_constraints = maneuver_constraints
     
-    def generate_agent_action(self,init_time,init_veh_vel,waypoint,waypoint_vels,manv,ag,horizon):
+    def generate_agent_action(self,init_time,init_veh_vel,waypoint,waypoint_vels,manv,ag,horizon,parent_trajectory_arcl=0):
         trajs = dict()
         if manv in ['wait']:
-            manv_constr = WaitTrajectoryConstraints(init_vel=init_veh_vel,waypoints=waypoint,stop_horizon_dist_sampling_range=(10,100),stop_horizon_time_sampling_range=(1,10))
+            if ag == 'agent_1':
+                stop_horizon_dist_sampling_range = (1,5)
+                stop_horizon_time_sampling_range = (1,4)
+            else:
+                if rg_constants.SCENE_TYPE[0] == 'REAL':
+                    stop_horizon_dist_sampling_range = (self.maneuver_constraints[ag]['maneuvers']['wait'].stop_horizon_dist_sampling_range[0]-parent_trajectory_arcl,self.maneuver_constraints[ag]['maneuvers']['wait'].stop_horizon_dist_sampling_range[1]-parent_trajectory_arcl)
+                    stop_horizon_time_sampling_range = (1,4)
+                elif rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['test','intersection_clearance']:
+                    if self.maneuver_constraints[ag]['agent_state'].id == 2:
+                        stop_horizon_dist_sampling_range = (IntersectionClearanceMapInfo.st1_on_intersection_distance[0]-5,IntersectionClearanceMapInfo.st1_on_intersection_distance[0]) 
+                    else:
+                        stop_horizon_dist_sampling_range = (IntersectionClearanceMapInfo.st2_on_intersection_distance[0]-5,IntersectionClearanceMapInfo.st2_on_intersection_distance[0])
+                    stop_horizon_time_sampling_range = (1,4)
+                else:
+                    stop_horizon_dist_sampling_range = (10,100)
+                    stop_horizon_time_sampling_range = (1,10)
+            manv_constr = WaitTrajectoryConstraints(init_vel=init_veh_vel,waypoints=waypoint,stop_horizon_dist_sampling_range=stop_horizon_dist_sampling_range,stop_horizon_time_sampling_range=stop_horizon_time_sampling_range)
         else:
             manv_constr = ProceedTrajectoryConstraints(waypoints=waypoint, waypoint_vel_sampling_range=waypoint_vels)
         manv_constr.set_limit_constraints()
+        manv_constr.parent_trajectory_arcl = parent_trajectory_arcl
         agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr, maneuver=manv, mode=None, horizon=horizon)
         agent_motion.generate_trajectory(True)
         trajs[manv] = agent_motion.all_trajectories
@@ -163,12 +182,26 @@ class Actions:
             if 'agent_2' not in maneuver_constraints['motion_info']:
                 maneuver_constraints['motion_info']['agent_2'] = dict()
             maneuver_constraints['motion_info']['agent_2'][manv] = agent2_motion
-        
-        file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+        if rg_constants.SCENE_TYPE[0] == 'REAL':
+            file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+        else:
+            file_id =  rg_constants.CURRENT_RG_FILE_ID
+        '''
+        plt.plot([x[0] for x in maneuver_constraints['agent_1']['agent_state'].waypoints],[x[1] for x in maneuver_constraints['agent_1']['agent_state'].waypoints],color='blue',marker='x')
+        plt.plot([x[0] for x in maneuver_constraints['agent_2']['agent_state'].waypoints],[x[1] for x in maneuver_constraints['agent_2']['agent_state'].waypoints],color='red',marker='x')
+        plt.show()
+        '''
+        path = maneuver_constraints['agent_1']['agent_state'].waypoints
+        dist_from_origin = [0] + [math.hypot(p2[0]-p1[0], p2[1]-p1[1]) for p1,p2 in list(zip(path[:-1],path[1:]))]
+        dist_from_origin = np.cumsum(dist_from_origin)
+        path = maneuver_constraints['agent_2']['agent_state'].waypoints
+        dist_from_origin = [0] + [math.hypot(p2[0]-p1[0], p2[1]-p1[1]) for p1,p2 in list(zip(path[:-1],path[1:]))]
+        dist_from_origin = np.cumsum(dist_from_origin)
+        f=1
         
         if insert_into_db:
             parent_traj_id = None
-            conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+file_id+'.db')
+            conn = sqlite3.connect(rg_constants.get_rg_db_path(file_id))
             c = conn.cursor()
             i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
             i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?,?)'
@@ -179,7 +212,7 @@ class Actions:
                 for traj_manv,tm_v in traj_det_dict.items():
                     for traj_mode,tmd_v in tm_v.items():
                         for trj in tmd_v:
-                            traj_entry = [(traj_id,float(x[1]),float(x[2]),float(x[3]),float(x[4]),x[6],x[0],x[7],None) for x in trj] 
+                            traj_entry = [(traj_id,float(x[1]),float(x[2]),float(x[3]),float(x[4]),x[6],x[0],x[7],x[8]) for x in trj] 
                             traj_mtdt_entry = [(traj_id,float(trj[0][1]),float(trj[0][2]),float(trj[0][3]),float(trj[0][4]),float(trj[-1][3]),traj_manv,traj_mode,ag_type,init_time,parent_traj_id)]
                             traj_metadata.extend(traj_mtdt_entry)
                             trajs.extend(traj_entry)
@@ -324,11 +357,11 @@ def find_index_in_list(s_sum, dist_from_origin):
 
 class TreeBuilder:
     
-    def construct_centerline(self,dist,ag,v0,maneuver_constraints):
+    def construct_centerline(self,dist,ag,v0,maneuver_constraints,point):
         path = maneuver_constraints[ag]['agent_state'].waypoints
         waypoint_velocity = maneuver_constraints[ag]['maneuvers']['turn'].waypoint_vel_sampling_range if ag == 'agent_1' else maneuver_constraints[ag]['maneuvers']['track_speed'].waypoint_vel_sampling_range
         dist_from_origin = [0] + [math.hypot(p2[0]-p1[0], p2[1]-p1[1]) for p1,p2 in list(zip(path[:-1],path[1:]))]
-        dist_from_origin = [sum(dist_from_origin[:i]) for i in np.arange(1,len(dist_from_origin))]
+        dist_from_origin = np.cumsum(dist_from_origin)
         path_idx = find_index_in_list(dist, dist_from_origin)
         if path_idx is None:
             print(dist)
@@ -344,7 +377,7 @@ class TreeBuilder:
         r = overflow/math.hypot(path[path_idx+1][0]-path[path_idx][0], path[path_idx+1][1]-path[path_idx][1]) if overflow != 0 else 0
         point_x = path[path_idx][0] + r*(path[path_idx+1][0] - path[path_idx][0])
         point_y = path[path_idx][1] + r*(path[path_idx+1][1] - path[path_idx][1])
-        point = (point_x,point_y)
+        #point = (point_x,point_y)
         if underflow is not None and underflow < 2:
             if path_idx+2 <= len(path)-1 :
                 new_path = [point] + path[path_idx+2:]
@@ -362,7 +395,10 @@ class TreeBuilder:
 
     def build_initial_reachability_states(self, maneuver_constraints):
         init_time = 0
-        self.file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+        if rg_constants.SCENE_TYPE[0] == 'REAL':
+            self.file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+        else:
+            self.file_id = rg_constants.CURRENT_RG_FILE_ID
         agent1_init_vel = maneuver_constraints['agent_1']['agent_state'].velocity
         agent2_init_vel = maneuver_constraints['agent_2']['agent_state'].velocity
         time_horizon = self.horizon
@@ -372,7 +408,7 @@ class TreeBuilder:
         
     def get_current_states(self,time_intervals,maneuver_constraints):
         state_lattice = dict()
-        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
+        conn = sqlite3.connect(rg_constants.get_rg_db_path(self.file_id))
         c = conn.cursor()
         for t in time_intervals:
             print('---------------------',t,'secs ---------------------------------')
@@ -384,7 +420,7 @@ class TreeBuilder:
                 
                 print("--",ag,'init states (s,x,y)',"--")
                 for manv in maneuver_constraints[ag]['maneuvers'].keys():
-                    q_string = "SELECT MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X),ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.TRAJ_ID FROM TRAJECTORY_METADATA \
+                    q_string = "SELECT MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X),ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.TRAJ_ID,ARC_LENGTH FROM TRAJECTORY_METADATA \
                                 INNER JOIN TRAJECTORIES on TRAJECTORY_METADATA.TRAJ_ID = TRAJECTORIES.TRACK_ID \
                                     WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag+"' AND TRAJECTORIES.TIME="+str(t[1])+" AND TRAJECTORY_METADATA.INIT_TIME="+str(t[0])+"\
                                     AND MANEUVER='"+manv+"'"
@@ -393,16 +429,17 @@ class TreeBuilder:
                     if len(res) == 0:
                         continue
                     speed = np.array([row[2] for row in res])
-                    traj_l = np.array([(LA.norm([x[3],x[4]]),x[5],x[6],x[7],x[2],x[8]) for x in res])
+                    traj_l = np.array([(LA.norm([x[3],x[4]]),x[5],x[6],x[7],x[2],x[8],x[9]) for x in res])
                     print(ag,manv)
                     speed_states = np.arange(np.amin(speed),np.amax(speed)+.3,.3)
                     trajs_l_states = []
                     for i,t_p in enumerate(traj_l):
                         if i == 0:
-                            trajs_l_states.append((t_p[1],t_p[2],t_p[0],t_p[4],t_p[5]))
+                            trajs_l_states.append((t_p[1],t_p[2],t_p[0],t_p[4],t_p[5],t_p[6]))
                         else:
                             if abs(traj_l[i-1][0] - t_p[0]) >= lattice_dist_step:
-                                trajs_l_states.append((t_p[1],t_p[2],t_p[0],t_p[4],t_p[5]))
+                                '''manv_mode, speed, manv, y_dist, x_pos'''
+                                trajs_l_states.append((t_p[1],t_p[2],t_p[0],t_p[4],t_p[5],t_p[6]))
                         
                     #num_states = len(speed_states)*len(trajs_l_states)
                     num_states = len(trajs_l_states)
@@ -421,7 +458,7 @@ class TreeBuilder:
         return state_lattice
     
     def insert_trajs_into_db(self,trajs, ag, init_time, parent_traj_id):
-        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
+        conn = sqlite3.connect(rg_constants.get_rg_db_path(self.file_id))
         c = conn.cursor()
         i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
         i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?,?)'
@@ -435,7 +472,7 @@ class TreeBuilder:
             for traj_manv,tm_v in traj_det_dict.items():
                 for traj_mode,tmd_v in tm_v.items():
                     for trj in tmd_v:
-                        traj_entry = [(traj_id,float(x[1]),float(x[2]),float(x[3]),float(x[4]),x[6],x[0],x[7],None) for x in trj] 
+                        traj_entry = [(traj_id,float(x[1]),float(x[2]),float(x[3]),float(x[4]),x[6],x[0],x[7],x[8]) for x in trj] 
                         traj_mtdt_entry = [(traj_id,float(trj[0][1]),float(trj[0][2]),float(trj[0][3]),float(trj[0][4]),float(trj[-1][3]),traj_manv,traj_mode,ag_type,init_time,parent_traj_id)]
                         traj_metadata.extend(traj_mtdt_entry)
                         trajs.extend(traj_entry)
@@ -461,14 +498,37 @@ class TreeBuilder:
                         for init_st in manv_v:
                             ct += 1
                             v = init_st[3]
-                            waypt,waypt_vel = self.construct_centerline(init_st[2],ag,v,maneuver_constraints)
+                            parent_traj_arcl = init_st[5]
+                            waypt,waypt_vel = self.construct_centerline(init_st[5],ag,v,maneuver_constraints,(init_st[0],init_st[1]))
+                            path = maneuver_constraints[ag]['agent_state'].waypoints
+                            
+                            '''
+                            plt.figure()
+                            plt.plot([x[0] for x in path],[x[1] for x in path],color='blue',marker='x')
+                            plt.plot([x[0] for x in waypt],[x[1] for x in waypt],color='red',marker='o')
+                            plt.plot([init_st[0]],[init_st[1]],color='black',marker='s')
+                            plt.show()
+                            '''
                             assert len(waypt) == len(waypt_vel)
                             act = Actions(maneuver_constraints)
                             generating_manv_l = [x for x in maneuver_constraints[ag]['maneuvers'].keys() if x != manv]
                             for generating_manv in generating_manv_l:
                                 step_horizon = self.horizon - ts
                                 parent_traj_id = init_st[4]
-                                trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, step_horizon)
+                                '''
+                                if ag == 'agent_2' and ts == 4:
+                                    plt.figure()
+                                    plt.title('path')
+                                    plt.plot([x[0] for x in waypt], [x[1] for x in waypt],marker='x',color='red')
+                                    v = waypt
+                                    plt.arrow(v[0][0], v[0][1],v[1][0]-v[0][0] , v[1][1]-v[0][1], width=.25,color='green')
+                                    v = path
+                                    plt.arrow(v[-2][0], v[-2][1],v[-1][0]-v[-2][0] , v[-1][1]-v[-2][1], width=.25,color='black')
+                                    plt.plot([x[0] for x in path],[x[1] for x in path],color='blue',marker='o')
+                                    plt.axis('equal')
+                                    plt.show()
+                                '''
+                                trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, step_horizon, parent_traj_arcl)
                                 if self.initialize_db:
                                     self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
                                 print('generating',ag,'time',ts,'manv',generating_manv,ct,'/',N)
@@ -517,16 +577,20 @@ class Node:
                         for j in np.arange(self.on_uspe.shape[1]):
                             if self.on_uspe[i,j]:
                                 node_result['uspe'].append((i,j))
+                ag1_utilsdiff = np.ndarray(shape=self._parent.equilibrium_solutions.shape,dtype=float)
+                ag2_utilsdiff = np.ndarray(shape=self._parent.equilibrium_solutions.shape,dtype=float)
                 for i in np.arange(self._parent.equilibrium_solutions.shape[0]):
                     for j in np.arange(self._parent.equilibrium_solutions.shape[1]):
                         ag1_eq_acts = [x.veh_eq_acts[0] for x in self._parent.equilibrium_solutions[i,j]]
                         ag2_eq_acts = [x.peds_eq_acts[0] for x in self._parent.equilibrium_solutions[i,j]]
                         this_ag1_utils = [self._parent.util_info['spe'][(ag1_emp_trajl,x)][0][i,j] for x in ag2_eq_acts]
                         this_ag2_utils = [self._parent.util_info['spe'][(x,ag2_emp_trajl)][1][i,j] for x in ag1_eq_acts]
-                        ag1_utilsdiff = min([x-y for x,y in itertools.product([x.veh_eq_utils[0] for x in self._parent.equilibrium_solutions[i,j]],this_ag1_utils)])
-                        ag2_utilsdiff = min([x-y for x,y in itertools.product([x.peds_eq_utils[0] for x in self._parent.equilibrium_solutions[i,j]],this_ag2_utils)])
-                        util_residuals['uspe'].append((ag1_utilsdiff,ag2_utilsdiff))
-                        util_residuals['mspe'].append((ag1_utilsdiff,ag2_utilsdiff))
+                        ag1_utilsdiff[i,j] = min([_resd for _resd in [x-y for x,y in itertools.product([self._parent.equilibrium_solutions[i,j][_eqidx].veh_br_map[x][0][i,j]['utils'] for _eqidx,x in enumerate(ag2_eq_acts)],this_ag1_utils)] if _resd >=0 ])
+                        ag2_utilsdiff[i,j] = min([_resd for _resd in [x-y for x,y in itertools.product([self._parent.equilibrium_solutions[i,j][_eqidx].peds_br_map[x][0][i,j]['utils'] for _eqidx,x in enumerate(ag1_eq_acts)],this_ag2_utils)] if _resd >=0 ])
+                        if ag1_utilsdiff[i,j] < 0 or ag2_utilsdiff[i,j] < 0:
+                            brk = 1
+                util_residuals['uspe'].append((ag1_utilsdiff,ag2_utilsdiff))
+                util_residuals['mspe'].append((ag1_utilsdiff,ag2_utilsdiff))
                         
                 
                 if hasattr(self, 'automata_strategy_info'):
@@ -541,11 +605,24 @@ class Node:
                         if  min(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']) <= ag1_emp_trajl <= max(ag1_resp[i]['traj_l'],ag1_resp_min[i]['traj_l']):
                             node_result['ag1_auto_resp'].append(i)
                         #util_residuals['ag1_auto_resp'].append((ag1_resp[i]['utils']-,))
+                    ag1_emp_utils = None
+                    ag1_all_trajls = self.parent.auto_strategy_response['agent_1_all_responses'][:,0,0]['traj_l']
+                    _this_trajl_index, = np.where(np.isclose(ag1_all_trajls, ag1_emp_trajl))
+                    ag1_emp_utils = self.parent.auto_strategy_response['agent_1_all_responses'][_this_trajl_index,:,0]['utils'] if _this_trajl_index.shape[0] > 0 else None
+                    ag1_utilsdiff_autoresp = ag1_resp['utils'] - ag1_emp_utils if ag1_emp_utils is not None else None
                     ag2_resp = self.parent.auto_strategy_response['agent_2'][0][0,:]
                     ag2_resp_min = self.parent.auto_strategy_response['agent_2'][1][0,:]
                     for i,resp in enumerate(ag2_resp):
                         if  min(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']) <= ag2_emp_trajl <= max(ag2_resp[i]['traj_l'],ag2_resp_min[i]['traj_l']):
-                            node_result['ag2_auto_resp'].append(i) 
+                            node_result['ag2_auto_resp'].append(i)
+                    ag2_emp_utils = None
+                    ag2_all_trajls = self.parent.auto_strategy_response['agent_2_all_responses'][:,0,0]['traj_l']
+                    _this_trajl_index, = np.where(np.isclose(ag2_all_trajls, ag2_emp_trajl))
+                    ag2_emp_utils = self.parent.auto_strategy_response['agent_2_all_responses'][_this_trajl_index,0,:]['utils'] if _this_trajl_index.shape[0] > 0 else None
+                    ag2_utilsdiff_autoresp = ag2_resp['utils'] - ag2_emp_utils if ag2_emp_utils is not None else None
+                    util_residuals['ag1_auto_resp'].append(ag1_utilsdiff_autoresp)
+                    util_residuals['ag2_auto_resp'].append(ag2_utilsdiff_autoresp)
+                     
                 if hasattr(self.parent, 'robust_response'):
                     ag1_resp = self.parent.robust_response['agent_1'][:,0]
                     for i,resp in enumerate(ag1_resp):
@@ -555,6 +632,20 @@ class Node:
                     for i,resp in enumerate(ag2_resp):
                         if  min(ag2_resp[i].peds_eq_acts) <= ag2_emp_trajl <= max(ag2_resp[i].peds_eq_acts):
                             node_result['ag2_robust'].append(i) 
+                    if hasattr(self.parent, 'robust_response_type'):
+                        if self.parent.robust_response_type['agent_1'] == 'auto':
+                            util_residuals['ag1_robust'].append(util_residuals['ag1_auto_resp'][-1])
+                        elif self.parent.robust_response_type['agent_1'] == 'spe':
+                            util_residuals['ag1_robust'].append(util_residuals['mspe'][-1][0])
+                        else:
+                            util_residuals['ag1_robust'].append(None)
+                        if self.parent.robust_response_type['agent_2'] == 'auto':
+                            util_residuals['ag2_robust'].append(util_residuals['ag2_auto_resp'][-1])
+                        elif self.parent.robust_response_type['agent_2'] == 'spe':
+                            util_residuals['ag2_robust'].append(util_residuals['mspe'][-1][1])   
+                        else:
+                            util_residuals['ag2_robust'].append(None)
+                            
                 if hasattr(self.parent, 'ql1_response'):
                     ag1_resp = self.parent.ql1_response['response']['agent_1'][:,0]
                     for i,resp in enumerate(ag1_resp):
@@ -563,7 +654,12 @@ class Node:
                         else:
                             _prob = self.parent.ql1_response['distribution']['agent_1'][ag1_emp_trajl][i]
                             node_result['qlk']['ag1'].append((i,_prob))
-                            
+                    ag1_emp_utils = None
+                    ag1_all_trajls = self.parent.ql1_response['all_responses']['agent_1'][:,0,0]['traj_l']
+                    _this_trajl_index, = np.where(np.isclose(ag1_all_trajls, ag1_emp_trajl))
+                    ag1_emp_utils = self.parent.ql1_response['all_responses']['agent_1'][_this_trajl_index,:,0]['utils'] if _this_trajl_index.shape[0] > 0 else None
+                    ag1_utilsdiff_qlk = ag1_resp['utils'] - ag1_emp_utils if ag1_emp_utils is not None else None      
+                    
                     ag2_resp = self.parent.ql1_response['response']['agent_2'][:,0]
                     for i,resp in enumerate(ag2_resp):
                         if resp['traj_l'] == ag2_emp_trajl:
@@ -571,7 +667,13 @@ class Node:
                         else:
                             _prob = self.parent.ql1_response['distribution']['agent_2'][ag2_emp_trajl][i]
                             node_result['qlk']['ag2'].append((i,_prob))
-                            
+                    ag2_emp_utils = None
+                    ag2_all_trajls = self.parent.ql1_response['all_responses']['agent_2'][:,0,0]['traj_l']
+                    _this_trajl_index, = np.where(np.isclose(ag2_all_trajls, ag2_emp_trajl))
+                    ag2_emp_utils = self.parent.auto_strategy_response['agent_2_all_responses'][_this_trajl_index,0,:]['utils'] if _this_trajl_index.shape[0] > 0 else None
+                    ag2_utilsdiff_qlk = ag2_resp['utils'] - ag2_emp_utils if ag2_emp_utils is not None else None      
+                    util_residuals['qlk']['ag1'].append(ag1_utilsdiff_qlk)
+                    util_residuals['qlk']['ag2'].append(ag2_utilsdiff_qlk)
                     
                 print_str = [str(self.level)]
                 for k,v in node_result.items():
@@ -579,7 +681,7 @@ class Node:
                 print(' '.join(print_str))
                 if self.level not in results:
                     results[self.level] = []
-                results[self.level].append({'node_result':node_result,'node':self})
+                results[self.level].append({'node_result':node_result,'node':self, 'util_residuals':util_residuals})
                     
         else:
             if not self.is_leaf: 
@@ -877,10 +979,13 @@ class GameTree:
         all_vels = [[],[]]
         if soln_type == 'mspe':
             all_nodes = get_all_level_nodes(node=self.root,node_list=[],tree_level=self.horizon)
-            for node in all_nodes:
+            N = len(all_nodes)
+            for ct,node in enumerate(all_nodes):
                 for i in np.arange(5):
                     for j in np.arange(5):
-                        print(i,j)
+                        print(ct,N)
+                        if ct == 281:
+                            f=1
                         if hasattr(node, 'on_mspe') and node.on_mspe[i,j]:
                             parent_node = node.parent
                             if hasattr(parent_node, 'on_mspe') and parent_node.on_mspe[i,j]:
@@ -908,7 +1013,7 @@ class GameTree:
     
     
     def build_level_nodes(self, level):
-        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+self.file_id+'.db')
+        conn = sqlite3.connect(rg_constants.get_rg_db_path(self.file_id))
         c = conn.cursor()
         all_level_nodes = dict()
             
@@ -1100,10 +1205,12 @@ def animate_one_scenario(gt_file_id):
 def run_all_scenarios():
     freq = 0.5
     initialize_db = True
-    initialize_files = True
+    initialize_files = False
     rerun_failed_files = False
     failed_files = []
-    scene_type = 'rt'
+    scene_type = sys.argv[2]
+    rg_constants.SCENE_TYPE = ('REAL',None)
+    #inp_file_ids = [769,770,771,775,776]
     with open(rg_constants.FAILED_FILES_PATH,newline='\n') as csv_file:
         sc_reader = csv.reader(csv_file, delimiter=',')
         for row in sc_reader:
@@ -1117,13 +1224,13 @@ def run_all_scenarios():
         sc_reader = csv.reader(csv_file, delimiter=',')
         line_count = 0
         for row in sc_reader:
-            inp_file_id = sys.argv[1]
+            inp_file_ids = ast.literal_eval(sys.argv[1])
             dbfile_id = row[0]
             row_sc_type = row[1]
-            if int(dbfile_id) != int(inp_file_id):
+            if int(dbfile_id) not in inp_file_ids:
                 continue
             if scene_type is not None and scene_type != row_sc_type:
-                print('row',row,'not the scene type...continuing')
+                print('row',row,'not the scene type',sys.argv[2],'...continuing')
                 continue
             if not initialize_files:
                 if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
@@ -1195,10 +1302,10 @@ def run_all_scenarios():
                     fail_writer = csv.writer(failed_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
                     msg = row + [str(ex_type.__name__),str(ex_value),str(stack_trace)]
                     fail_writer.writerow(msg)
-                
-                #if not isinstance(e, UnsupportedLatticeException) and not isinstance(e, UnsupportedAgentObservationException) :
-                #    raise
-                
+                '''
+                if not isinstance(e, UnsupportedLatticeException) and not isinstance(e, UnsupportedAgentObservationException) :
+                    raise
+                '''
             line_count += 1
             
             
@@ -1270,20 +1377,31 @@ def results_all_scenarios():
             
 
 def plot_all_results():
+    
     hit_ct = {'uspe':0,'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0,'qlk':0}  
     range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'qlk':[]}
-    value_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'qlk':[]}
+    pooling_map = {'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()}
+    disagreement_map = {k:{'ag1':[],'ag2':[]} for k in itertools.product(pooling_map.keys(), pooling_map.keys())}
     line_count = 0
     resultfiles = [f for f in listdir(rg_constants.RESULTS_FILES) if isfile(join(rg_constants.RESULTS_FILES, f))]
+    residual_freq_ct = {'ag1_auto_resp':OrderedDict(), 'ag1_robust_resp':OrderedDict(), 'ag1_spe':OrderedDict(), 'qlk': OrderedDict()}
+    scene_type = 'rt'
     for resfile_name in resultfiles:
-        res_info = all_utils.utils.pickle_load(os.path.join(rg_constants.RESULTS_FILES,resfile_name))   
+        this_scene_type = resfile_name.split('_')[1]
+        if scene_type != this_scene_type:
+            print('row',this_scene_type,'not the scene type',scene_type,'...continuing')
+            continue
         line_count += 1
         print(line_count)
+        #if line_count >= 30:
+        #    break
+        res_info = all_utils.utils.pickle_load(os.path.join(rg_constants.RESULTS_FILES,resfile_name))
         for l,rl in res_info.items():
             if l!= 6:
                 continue
             for res in rl:
                 node_res = res['node_result']
+                util_residuals = res['util_residuals']
                 no_expl = True
                 if (node_res['ag1_ac'] is not False or node_res['ag1_nac'] is not False) and (node_res['ag2_ac'] is not False or node_res['ag2_nac'] is not False):
                     if node_res['ag1_ac'] is not False and  len(node_res['ag1_ac']) == 1:
@@ -1298,37 +1416,103 @@ def plot_all_results():
                     if node_res['ag1_ac'] is not False:
                         hit_ct['ac'] += .5
                         range_var['ac'].append(len(np.arange(min(node_res['ag1_ac']), max(node_res['ag1_ac'])+.5,.5)))
-                        value_var['ac'] +=  np.arange(min(node_res['ag1_ac']), max(node_res['ag1_ac'])+.5,.5).tolist()
+                        type_list = np.arange(round(min(node_res['ag1_ac']),1), round(max(node_res['ag1_ac']),1)+.5,.5).tolist()
+                        type_list.sort()
+                        if tuple(type_list) not in pooling_map['ac']:
+                            pooling_map['ac'][tuple(type_list)] = 1
+                        else:
+                            pooling_map['ac'][tuple(type_list)] += 1
                     else:
                         hit_ct['nac'] += .5
                         range_var['nac'].append(len(np.arange(min(node_res['ag1_nac']), max(node_res['ag1_nac'])+.5,.5)))
-                        value_var['nac'] += np.arange(min(node_res['ag1_nac']), max(node_res['ag1_nac'])+.5,.5).tolist()
+                        type_list = np.arange(round(min(node_res['ag1_nac']),1), round(max(node_res['ag1_nac']),1)+.5,.5).tolist()
+                        type_list.sort()
+                        if tuple(type_list) not in pooling_map['nac']:
+                            pooling_map['nac'][tuple(type_list)] = 1
+                        else:
+                            pooling_map['nac'][tuple(type_list)] += 1
                     if node_res['ag2_ac'] is not False:
                         hit_ct['ac'] += .5
                         range_var['ac'].append(len(np.arange(min(node_res['ag2_ac']), max(node_res['ag2_ac'])+.5,.5)))
-                        value_var['ac'] += np.arange(min(node_res['ag2_ac']), max(node_res['ag2_ac'])+.5,.5).tolist()
+                        type_list = np.arange(round(min(node_res['ag2_ac']),1), round(max(node_res['ag2_ac']),1)+.5,.5).tolist()
+                        type_list.sort()
+                        if tuple(type_list) not in pooling_map['ac']:
+                            pooling_map['ac'][tuple(type_list)] = 1
+                        else:
+                            pooling_map['ac'][tuple(type_list)] += 1
                     else:
                         hit_ct['nac'] += .5
                         range_var['nac'].append(len(np.arange(min(node_res['ag2_nac']), max(node_res['ag2_nac'])+.5,.5)))
-                        value_var['nac'] += np.arange(min(node_res['ag2_nac']), max(node_res['ag2_nac'])+.5,.5).tolist()
+                        type_list = np.arange(round(min(node_res['ag2_nac']),1), round(max(node_res['ag2_nac']),1)+.5,.5).tolist()
+                        type_list.sort()
+                        if tuple(type_list) not in pooling_map['nac']:
+                            pooling_map['nac'][tuple(type_list)] = 1
+                        else:
+                            pooling_map['nac'][tuple(type_list)] += 1
                 if len(node_res['ag1_auto_resp']) > 0:
                     hit_ct['auto_resp'] += 0.5
                     range_var['auto_resp'].append(len(node_res['ag1_auto_resp']))
-                    value_var['auto_resp'] += node_res['ag1_auto_resp']
+                    type_list = node_res['ag1_auto_resp']
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if tuple(type_list) not in pooling_map['auto_resp']:
+                        pooling_map['auto_resp'][tuple(type_list)] = 1
+                    else:
+                        pooling_map['auto_resp'][tuple(type_list)] += 1
+                    
                 if len(node_res['ag2_auto_resp']) > 0:
                     hit_ct['auto_resp'] += 0.5
                     range_var['auto_resp'].append(len(node_res['ag2_auto_resp']))
-                    value_var['auto_resp'] += node_res['ag2_auto_resp']
+                    type_list = node_res['ag2_auto_resp']
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if tuple(type_list) not in pooling_map['auto_resp']:
+                        pooling_map['auto_resp'][tuple(type_list)] = 1
+                    else:
+                        pooling_map['auto_resp'][tuple(type_list)] += 1
+                    
                 if len(node_res['ag1_robust']) > 0:
                     hit_ct['robust'] += 0.5
                     range_var['robust'].append(len(node_res['ag1_robust']))
-                    value_var['robust'] += node_res['ag1_robust']
+                    type_list = node_res['ag1_robust']
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if tuple(type_list) not in pooling_map['robust']:
+                        pooling_map['robust'][tuple(type_list)] = 1
+                    else:
+                        pooling_map['robust'][tuple(type_list)] += 1
+                    
+                    
                 if len(node_res['ag2_robust']) > 0:
                     hit_ct['robust'] += 0.5
                     range_var['robust'].append(len(node_res['ag2_robust']))
-                    value_var['robust'] += node_res['ag2_robust']
+                    type_list = node_res['ag2_robust']
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if tuple(type_list) not in pooling_map['robust']:
+                        pooling_map['robust'][tuple(type_list)] = 1
+                    else:
+                        pooling_map['robust'][tuple(type_list)] += 1
+                    
                 if len(node_res['qlk']['ag1']) >0 and len(node_res['qlk']['ag2']) >0:
                     _ag1_br = [1 if x[1]==1 else 0 for x in node_res['qlk']['ag1']]
+                    type_list = [x[0] for x in node_res['qlk']['ag1'] if x[1] == 1]
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if len(type_list) > 0:
+                        if tuple(type_list) not in pooling_map['qlk']:
+                            pooling_map['qlk'][tuple(type_list)] = 1
+                        else:
+                            pooling_map['qlk'][tuple(type_list)] += 1
+                    type_list = [x[0] for x in node_res['qlk']['ag2'] if x[1] == 1]
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if len(type_list) > 0:
+                        if tuple(type_list) not in pooling_map['qlk']:
+                            pooling_map['qlk'][tuple(type_list)] = 1
+                        else:
+                            pooling_map['qlk'][tuple(type_list)] += 1
+                        
                     _ag2_br = [1 if x[1]==1 else 0 for x in node_res['qlk']['ag2']]
                     if max(_ag1_br) == 1:
                         hit_ct['qlk'] += 0.5
@@ -1337,26 +1521,52 @@ def plot_all_results():
                     #hit_ct['qlk'] += max(_ag1_br + [x[1] for x in node_res['qlk']['ag2']])
                     #range_var['qlk'].append(min(len(_ag1_br),len(node_res['qlk']['ag2'])))
                     range_var['qlk'].append(_ag1_br.count(1) + _ag2_br.count(1))
-                    #value_var['qlk'] += [x for x in _ag1_br if x in node_res['qlk']['ag2']]
-                    value_var['qlk'] += [[x for x in _ag1_br if x == 1] + [x for x in _ag2_br if x == 1]]
+                    #pooling_map['qlk'] += [x for x in _ag1_br if x in node_res['qlk']['ag2']]
+                    
                 if len(node_res['mspe']) > 0:
                     hit_ct['mspe'] += 1
-                    print('mspe')
-                    print(list(set([x[0] for x in node_res['mspe']])))
-                    print(list(set([x[1] for x in node_res['mspe']])))
+                    #print('mspe')
+                    #print(list(set([x[0] for x in node_res['mspe']])))
+                    #print(list(set([x[1] for x in node_res['mspe']])))
                     range_var['mspe'].append(len(list(set([x[0] for x in node_res['mspe']]))))
                     range_var['mspe'].append(len(list(set([x[1] for x in node_res['mspe']]))))
-                    value_var['mspe'] += list(set([x[0] for x in node_res['mspe']]))
-                    value_var['mspe'] += list(set([x[1] for x in node_res['mspe']]))
+                    type_list = list(set([x[0] for x in node_res['mspe']]))
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if tuple(type_list) not in pooling_map['mspe']:
+                        pooling_map['mspe'][tuple(type_list)] = 1
+                    else:
+                        pooling_map['mspe'][tuple(type_list)] += 1
+                    type_list = list(set([x[1] for x in node_res['mspe']]))
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if tuple(type_list) not in pooling_map['mspe']:
+                        pooling_map['mspe'][tuple(type_list)] = 1
+                    else:
+                        pooling_map['mspe'][tuple(type_list)] += 1
+                    
                 if len(node_res['uspe']) > 0:
                     hit_ct['uspe'] += 1
                     range_var['uspe'].append(len(list(set([x[0] for x in node_res['uspe']]))))
                     range_var['uspe'].append(len(list(set([x[1] for x in node_res['uspe']]))))
-                    value_var['uspe'] += list(set([x[0] for x in node_res['uspe']]))
-                    value_var['uspe'] += list(set([x[1] for x in node_res['uspe']]))
-                    print('uspe')
-                    print(list(set([x[0] for x in node_res['uspe']])))
-                    print(list(set([x[1] for x in node_res['uspe']])))
+                    type_list = list(set([x[0] for x in node_res['uspe']]))
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if tuple(type_list) not in pooling_map['uspe']:
+                        pooling_map['uspe'][tuple(type_list)] = 1
+                    else:
+                        pooling_map['uspe'][tuple(type_list)] += 1
+                    type_list = list(set([x[1] for x in node_res['uspe']]))
+                    type_list = rg_utils.to_type(type_list)
+                    type_list.sort()
+                    if tuple(type_list) not in pooling_map['uspe']:
+                        pooling_map['uspe'][tuple(type_list)] = 1
+                    else:
+                        pooling_map['uspe'][tuple(type_list)] += 1
+                    
+                    #print('uspe')
+                    #print(list(set([x[0] for x in node_res['uspe']])))
+                    #print(list(set([x[1] for x in node_res['uspe']])))
                 
                 '''    
                 if node_res['mspe'] is not False:
@@ -1374,34 +1584,71 @@ def plot_all_results():
                 
                 if no_expl:
                     hit_ct['no_exp'] += 1
+                    
+                ''' residual distributions '''
+                _e = util_residuals['ag1_auto_resp'][0][0,2]
+                _e = round(_e, 2)
+                if _e not in residual_freq_ct['ag1_auto_resp']:
+                    residual_freq_ct['ag1_auto_resp'][_e] = 1
+                else:
+                    residual_freq_ct['ag1_auto_resp'][_e] += 1
+                
+                _e = util_residuals['ag1_robust'][0][0,2]
+                _e = round(_e, 2)
+                if _e not in residual_freq_ct['ag1_robust_resp']:
+                    residual_freq_ct['ag1_robust_resp'][_e] = 1
+                else:
+                    residual_freq_ct['ag1_robust_resp'][_e] += 1
+                    
+                _e = util_residuals['mspe'][0][0][2,2]
+                _e = round(_e, 2)
+                if _e not in residual_freq_ct['ag1_spe']:
+                    residual_freq_ct['ag1_spe'][_e] = 1
+                else:
+                    residual_freq_ct['ag1_spe'][_e] += 1
+                    
+                _e = util_residuals['qlk']['ag1'][0][0,2]
+                _e = round(_e, 2)
+                if _e not in residual_freq_ct['qlk']:
+                    residual_freq_ct['qlk'][_e] = 1
+                else:
+                    residual_freq_ct['qlk'][_e] += 1
+                
+                
     plt.figure()
     plt.bar(np.arange(len(hit_ct)), list(hit_ct.values()), align='center', alpha=0.5)
     plt.xticks(np.arange(len(hit_ct)), list(hit_ct.keys()))
+    for k,v in pooling_map.items():
+        fig, axs = plt.subplots(2)
+        #fig.suptitle('pooling map-'+k,y=1.12)
+        ax = fig.gca()
+        disp_scene_type = 'right_turn' if scene_type == 'rt' else 'left_turn'
+        ax.set_title(k+'-'+disp_scene_type, pad=20)
+        axs[0].bar(np.arange(len(v)), list(v.values()), align='center', alpha=0.5)
+        axs[0].set_xticks(np.arange(len(v.keys())))
+        axs[0].set_xticklabels(list(v.keys()), rotation=45)
+        #axs[0].title.set_text(str(list(zip(v.keys(),v.values()))))
+        x_key_arr = np.zeros(shape=(5,len(v)))
+        key_arr_ord = []
+        for _k1_idx,_k1 in enumerate(v.keys()):
+            for tol_idx,tol in enumerate(np.arange(-1,1.5,0.5).tolist()):
+                if tol in _k1:
+                    #print(tol_idx,_k1_idx)
+                    x_key_arr[tol_idx,_k1_idx] = tol+2
+            key_arr_ord.append(_k1)
+        rg_utils.plot_heatmap(plt, fig, axs[1], x_key_arr)
+        #axs[1].title.set_text(str(key_arr_ord))
+        fig.tight_layout()
+    
     '''
     fig = plt.figure()
     ax = fig.add_axes([0, 0, 1, 1])
     bp = ax.boxplot(list(range_var.values()))
     ax.set_yticklabels(list(range_var.keys()))
     '''
-    _x,_sd = [],[]
-    for k,v in range_var.items():
-        v = [(x-1)*0.5 for x in v]
-        print(k,np.mean(v),np.std(v),np.min(v),np.max(v))
-        '''
-        plt.figure()
-        plt.title(k)
-        plt.hist(v)
-        plt.show() 
-        '''
-        _x.append(np.mean(v))
-        _sd.append(np.std(v))
-    plt.figure()
-    plt.title('uncertainty')
-    plt.errorbar(list(value_var.keys()), _x, _sd,linestyle='None', marker='^')
-    err_range = [x/2 for x in _x]
-    print('---values---')
-    _x,_sd = [],[]
-    for k,v in value_var.items():
+    
+    '''
+    for k,v in pooling_map.items():
         if k == 'auto_resp' or k == 'uspe' or k == 'mspe' or k == 'robust' or k=='qlk':
             v = [-1 + (x*0.5) for x in v]
         print(k,np.mean(v),np.std(v),np.min(v),np.max(v))
@@ -1413,9 +1660,21 @@ def plot_all_results():
          
         _x.append(np.mean(v))
         _sd.append(np.std(v))
+    '''
+    '''
     plt.figure()
     plt.title('threshold values')
-    plt.errorbar(list(value_var.keys()), _x, err_range,linestyle='None', marker='^')
+    plt.errorbar(list(pooling_map.keys()), _x, err_range,linestyle='None', marker='^')
+    '''
+    '''
+    for k,v in residual_freq_ct.items():
+        plt.figure()
+        plt.title('residuals - '+k)
+        plt.scatter([x for x in v.keys()],[x for x in v.values()])
+    '''
+    print('for scene type',scene_type)
+    for k,v in hit_ct.items():
+        print(k,':',v)
     plt.show()
                   
 def plot_velocity_profiles(gt,scene_def,freq):
@@ -1508,9 +1767,12 @@ def main():
     run_all_scenarios()
     
 if __name__ == '__main__':
-    run_one_scenario(dbfile_id='769', agent1_id=8, agent2_id=20, start_ts=0, initialize_db=False, freq=0.5)
+    #rg_constants.SCENE_TYPE = ('synthetic','test')
+    #rg_constants.CURRENT_RG_FILE_ID = '769_44_49_34,1341'
+    #run_one_scenario(dbfile_id='769', agent1_id=44, agent2_id=49, start_ts=24.1341, initialize_db=True, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
-    #plot_all_results()
+    plot_all_results()
     #run_all_scenarios()
     #results_all_scenarios()
+    f=1
     

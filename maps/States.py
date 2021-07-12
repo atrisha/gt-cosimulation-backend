@@ -38,9 +38,9 @@ class ScenarioDef:
         return oneshot_vehstate
     
     def setup_database(self,file_id): 
-        conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\'+file_id+'.db')
+        conn = sqlite3.connect(rg_constants.get_rg_db_path(file_id))
         c = conn.cursor()
-        q_string = "CREATE TABLE IF NOT EXISTS TRAJECTORIES ( `TRACK_ID` INTEGER, `X` NUMERIC, `Y` NUMERIC, `SPEED` NUMERIC, `TAN_ACC` NUMERIC, `LAT_ACC` NUMERIC, `TIME` NUMERIC, `ANGLE` NUMERIC, `TRAFFIC_REGIONS` TEXT )"
+        q_string = "CREATE TABLE IF NOT EXISTS TRAJECTORIES ( `TRACK_ID` INTEGER, `X` NUMERIC, `Y` NUMERIC, `SPEED` NUMERIC, `TAN_ACC` NUMERIC, `LAT_ACC` NUMERIC, `TIME` NUMERIC, `ANGLE` NUMERIC, `ARC_LENGTH` NUMERIC )"
         c.execute(q_string)
         q_string = "CREATE TABLE IF NOT EXISTS TRAJECTORY_METADATA ( `TRAJ_ID` INTEGER, `INIT_POS_X` NUMERIC, `INIT_POS_Y` NUMERIC, `INIT_VEL` NUMERIC, `INIT_ACC` NUMERIC, `FINAL_VEL` NUMERIC, `MANEUVER` TEXT, `MANEUVER_MODE` TEXT, `AGENT_TYPE` TEXT, `INIT_TIME` INTEGER, `PARENT_TRAJ_ID` INTEGER )"
         c.execute(q_string)
@@ -292,7 +292,6 @@ class ScenarioDef:
         else:
             agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent1.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent1.waypoint_segments[i], self.agent1.direction) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [self.get_reasonable_velocities(self.agent1.waypoint_segments[-1], self.agent1.direction)]
         #agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [(4,8.3)]
-        agent2_vel_pts_proc = [(self.agent2.velocity,)] + [(None,)]*(len(self.agent2.waypoints)-2) + [(8,17)]
         if len(self.agent2.waypoints) < 5:
             agent2_vel_pts_proc = [(self.agent2.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent2.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent2.waypoint_segments[i], self.agent2.direction) for i in np.arange(1,len(self.agent2.waypoints)-1)] + [self.get_reasonable_velocities(self.agent2.waypoint_segments[-1], self.agent2.direction)]
         else:
@@ -332,6 +331,18 @@ class SyntheticScenarioDef:
         self.agent = VehicleState(agent_attribs)
         
         
-        
+class TwoAgentSyntheticScenarioDef(ScenarioDef):
+    
+    def __init__(self,initialize_db,file_id):
+        if initialize_db:
+            self.setup_database(file_id)
+    
+    def add_agent(self,agent_tag,agent_id, agent_init_velocity_mps, agent_waypoints,agent_waypoint_segments, direction, file_id,initialize_db,start_ts,freq):   
+        assert len(agent_waypoints[0]) == 2, "Agent waypoints should contain (x,v) information"
+        agent_attribs = {'x':agent_waypoints[0][0], 'y':agent_waypoints[0][1], 'velocity':agent_init_velocity_mps, 'waypoints':agent_waypoints, 'file_time':start_ts, 'id':agent_id, 'waypoint_segments':agent_waypoint_segments, 'direction':direction}
+        if agent_tag == 'agent_1':
+            self.agent1 = VehicleState(agent_attribs)     
+        else:
+            self.agent2 = VehicleState(agent_attribs)
                        
         

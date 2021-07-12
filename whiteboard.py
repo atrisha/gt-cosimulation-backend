@@ -338,7 +338,7 @@ def generate_trajectories(vehicle):
         motion.generate_trajectory(True)
         trajectories[action] = motion.all_trajectories
     return trajectories
-
+'''
 import codecs
 import osm2geojson
 
@@ -349,3 +349,7 @@ geojson = osm2geojson.xml2geojson(xml, filter_used_refs=False, log_level='INFO')
 import utm
 d = utm.from_latlon(40.758, -73.8294)
 print(d)
+'''
+
+#column_labels = list(range(0,24))
+

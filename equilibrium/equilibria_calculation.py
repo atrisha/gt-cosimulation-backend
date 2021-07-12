@@ -21,6 +21,7 @@ from code_utils.code_util_objects import RunContext
 from code_utils.utils import get_all_level_nodes, get_nearest_node
 from code_utils.utils import *
 import copy
+from maps.map_info import IntersectionClearanceMapInfo
 
 #from figures import SIZE, set_limits, plot_coords, plot_bounds, plot_line_issimple
 
@@ -150,52 +151,76 @@ class Equilibria:
         print('adding contd utils....')
         N = len(l6_nodes)
         for ctr,n in enumerate(l6_nodes):
-            if hasattr(n, 'mean_safe_util_contd'):
+            if hasattr(n, 'extd_util_calculated'):
                 continue
-            print('adding contd utils....',ctr,'/',N)
-            mean_safe_util_contd = self.calc_extended_util(n.path_from_root['agent_1'], n.path_from_root['agent_2'])
-            #mean_safe_util_contd = 0
+            if rg_constants.SCENE_TYPE[0] == 'REAL':
+                print('adding contd utils....',ctr,'/',N)
+            all_agents_ext_utils = self.calc_extended_util(n.path_from_root['agent_1'], n.path_from_root['agent_2'],n)
+            
             #n.path_from_root['agent_1'].mean_safe_util_contd = mean_safe_util_contd
             #n.path_from_root['agent_2'].mean_safe_util_contd = mean_safe_util_contd
-            n.mean_safe_util_contd = mean_safe_util_contd
+            n.mean_safe_util_contd_ag1 = all_agents_ext_utils[0][0]
+            n.mean_progress_util_contd_ag1 = all_agents_ext_utils[0][1]
+            n.mean_safe_util_contd_ag2 = all_agents_ext_utils[1][0]
+            n.mean_progress_util_contd_ag2 = all_agents_ext_utils[1][1]
+            n.extd_util_calculated = True
+            
         print('adding contd utils....DONE')
+    
+           
+    def calc_extended_util(self,ag1_traj_frag,ag2_traj_frag,n):
+        if rg_constants.SCENE_TYPE[0] == 'REAL':
+            ag1_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_1'][ag1_traj_frag.get_last().manv]
+            try:
+                ag2_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_2'][ag2_traj_frag.get_last().manv]
+            except KeyError:
+                f=1
+                raise
+            ag1_trajs = ag1_motion_obj.generate_extended_trajectory(ag1_traj_frag,{manv:manv for manv in self.run_context.maneuver_constraints['agent_1']['maneuvers'].keys()})
+            ag2_trajs = ag2_motion_obj.generate_extended_trajectory(ag2_traj_frag,{manv:manv for manv in self.run_context.maneuver_constraints['agent_2']['maneuvers'].keys()})
             
             
-    def calc_extended_util(self,ag1_traj_frag,ag2_traj_frag):
-        ag1_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_1'][ag1_traj_frag.get_last().manv]
-        try:
-            ag2_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_2'][ag2_traj_frag.get_last().manv]
-        except KeyError:
-            f=1
-            raise
-        ag1_trajs = ag1_motion_obj.generate_extended_trajectory(ag1_traj_frag,{manv:manv for manv in self.run_context.maneuver_constraints['agent_1']['maneuvers'].keys()})
-        ag2_trajs = ag2_motion_obj.generate_extended_trajectory(ag2_traj_frag,{manv:manv for manv in self.run_context.maneuver_constraints['agent_2']['maneuvers'].keys()})
-        
-        
-        '''
-        for ag1_t,ag2_t in itertools.product(ag1_trajs,ag2_trajs):
-            plt.plot([x[1] for x in ag1_t],[x[2] for x in ag1_t])
-            plt.plot([x[1] for x in ag2_t],[x[2] for x in ag2_t])
-        plt.xlim(538780, 538890)
-        plt.ylim(4813970, 4814055)
-        plt.show()
-        '''
-        u = Utilities()
-        dist_gaps = []
-        for ag1_t,ag2_t in itertools.product(ag1_trajs,ag2_trajs):
-            _dg = u.calc_dist_gap(ag1_t, ag2_t, (1,2))
-            dist_gaps.append(_dg)
-        avg_dg = np.mean(dist_gaps)
-        mean_safe_util = u.calc_safe_payoff(avg_dg)
-        return mean_safe_util
+            '''
+            for ag1_t,ag2_t in itertools.product(ag1_trajs,ag2_trajs):
+                plt.plot([x[1] for x in ag1_t],[x[2] for x in ag1_t])
+                plt.plot([x[1] for x in ag2_t],[x[2] for x in ag2_t])
+            plt.xlim(538780, 538890)
+            plt.ylim(4813970, 4814055)
+            plt.show()
+            '''
+            u = Utilities()
+            dist_gaps = []
+            for ag1_t,ag2_t in itertools.product(ag1_trajs,ag2_trajs):
+                _dg = u.calc_dist_gap(ag1_t, ag2_t, (1,2))
+                dist_gaps.append(_dg)
+            avg_dg = np.mean(dist_gaps)
+            mean_safe_util = u.calc_safe_payoff(avg_dg)
+            return [(mean_safe_util,None), (mean_safe_util,None)]
+        elif rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['test','intersection_clearance']:
+            ext_utils = None
+            agent_2_id = int(n._tree_link.file_id.split('_')[1].split('-')[1])
+            ag1_trajl = n.path_from_root['agent_1'].total_length
+            ag2_trajl = n.path_from_root['agent_2'].total_length
+            if ag1_trajl < 28:
+                ag1_ext_utils = (-1,-1)
+            else:
+                ag1_ext_utils = (1,1)
+            dist_2_intersection_start, dist_2_intersection_end = IntersectionClearanceMapInfo.st1_on_intersection_distance if agent_2_id==2 else IntersectionClearanceMapInfo.st2_on_intersection_distance
+            if ag2_trajl < dist_2_intersection_start:
+                ag2_ext_utils = (1,0.5)
+            elif dist_2_intersection_start <= ag2_trajl < dist_2_intersection_end:
+                ag2_ext_utils = (-1,-1)
+            else:
+                ag2_ext_utils = (0.5,1)
+            return [ag1_ext_utils,ag2_ext_utils]
+        else:
+            return [(None,None),(None,None)]
+                
+                
                 
 class AutoStrategyResponse(Equilibria):
     
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        if len(veh_acts) == len(ped_acts):
-            print('same')
-        else:
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!DIFFERENT')
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         gamma_matrix.reverse()
         self.gamma_matrix = gamma_matrix
@@ -206,7 +231,8 @@ class AutoStrategyResponse(Equilibria):
         ped_acts.sort(key=lambda x: x.length)
         ''' agent_2 best response to agent_1's trajectory length'''
         node.auto_strategy_response = dict()
-        interac_dict = OrderedDict()
+        agent1_br_map, agent2_br_map = OrderedDict(), OrderedDict()
+        
         ag_2_resp = []
         for ag1_tf,ag2_tf in zip(veh_acts,ped_acts):
             dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
@@ -233,8 +259,9 @@ class AutoStrategyResponse(Equilibria):
             safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
             step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), safe_payoff_for_dist, gamma_matrix[1])
             if node.level == last_decision_level:
-                ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd
-                cont_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), ext_safe_utils, gamma_matrix[1])
+                ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd_ag2
+                ext_prog_utils = ag2_tf._next_node.mean_progress_util_contd_ag2 if ag2_tf._next_node.mean_progress_util_contd_ag2 is not None else u.progress_payoff_dist(ag2_tf.length, 'agent_2')
+                cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[1])
                 _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
                 safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
             else:
@@ -263,6 +290,7 @@ class AutoStrategyResponse(Equilibria):
             traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
             _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
             ag_2_resp.append(_resp_entry)
+            
         if len(ag_2_resp) == 0:
             self.agent_2_auto_strategy_response = None
         else:
@@ -295,6 +323,7 @@ class AutoStrategyResponse(Equilibria):
             ag2_upper_bound_matrix = upper_bound_matrix[0,:,:]
             
             node.auto_strategy_response['agent_2'] = (ag2_upper_bound_matrix,ag2_lower_bound_matrix,ag2_lower_bound_safety_matrix)
+            node.auto_strategy_response['agent_2_all_responses'] = ag_2_resp
         
         ag_1_resp = []
         for ag2_tf,ag1_tf in zip(ped_acts,veh_acts):
@@ -322,8 +351,9 @@ class AutoStrategyResponse(Equilibria):
             safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
             step_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
             if node.level == last_decision_level:
-                ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd
-                cont_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd_ag1
+                ext_prog_utils = ag1_tf._next_node.mean_progress_util_contd_ag1 if ag1_tf._next_node.mean_progress_util_contd_ag1 is not None else u.progress_payoff_dist(ag1_tf.length, 'agent_1')
+                cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[0])
                 _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
                 safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
             else:
@@ -382,6 +412,7 @@ class AutoStrategyResponse(Equilibria):
             ag1_upper_bound_matrix = upper_bound_matrix[0,:,:]
                          
             node.auto_strategy_response['agent_1'] = (ag1_upper_bound_matrix,ag1_lower_bound_matrix, ag1_lower_bound_safety_matrix)
+            node.auto_strategy_response['agent_1_all_responses'] = ag_1_resp
         
     
 class RobustResponse(Equilibria):
@@ -444,7 +475,7 @@ class RobustResponse(Equilibria):
                 else:
                     node.robust_response['agent_1'][i] = None 
                     node.robust_response_type['agent_1'] = None
-            
+        
         for j in np.arange(node.robust_response['agent_2'].shape[0]):
             ''' agent_2 private tolerance type is j '''
             if (not hasattr(node, 'on_mspe') or  (hasattr(node, 'on_mspe') and np.all(node.on_mspe[:,j] == False))) and (not hasattr(node, 'on_uspe') or  (hasattr(node, 'on_uspe') and np.all(node.on_uspe[:,j] == False))):
@@ -509,6 +540,8 @@ class Ql1Model(Equilibria):
         node.ql1_response = {'response':{'agent_1' : np.empty(shape= (gamma_matrix[0].shape[0],1), dtype=object),
                                 'agent_2' : np.empty(shape= (gamma_matrix[1].shape[1],1), dtype=object)},
                              'distribution':{'agent_1' : None,
+                                'agent_2' : None},
+                             'all_responses':{'agent_1' : None,
                                 'agent_2' : None}}
         agent1_distr,agent2_distr = dict(), dict()
             
@@ -525,8 +558,9 @@ class Ql1Model(Equilibria):
                 safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
                 step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), safe_payoff_for_dist, gamma_matrix[1])
                 if node.level == last_decision_level:
-                    ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd
-                    cont_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), ext_safe_utils, gamma_matrix[0])
+                    ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd_ag2
+                    ext_prog_utils = ag2_tf._next_node.mean_progress_util_contd_ag2 if ag2_tf._next_node.mean_progress_util_contd_ag2 is not None else u.progress_payoff_dist(ag2_tf.length, 'agent_2')
+                    cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[0])
                     _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
                     safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                     cont_util = step_util
@@ -574,6 +608,7 @@ class Ql1Model(Equilibria):
             _u = r['utils']
             _prob = np.divide(np.exp(precision_parm*_u),_denom)
             agent2_distr[_tl] = np.copy(_prob)[0,:]
+        node.ql1_response['all_responses']['agent_2'] = np.array(ag_2_resp)   
         
         ag_1_resp = []
         for ag1_tf in veh_acts:
@@ -583,8 +618,9 @@ class Ql1Model(Equilibria):
                 safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
                 step_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
                 if node.level == last_decision_level:
-                    ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd
-                    cont_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                    ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd_ag1
+                    ext_prog_utils = ag1_tf._next_node.mean_progress_util_contd_ag1 if ag1_tf._next_node.mean_progress_util_contd_ag1 is not None else u.progress_payoff_dist(ag1_tf.length, 'agent_1')
+                    cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[0])
                     _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
                     safe_util = np.full(shape=gamma_matrix[0].shape, fill_value=_safe_m)
                     cont_util = step_util
@@ -628,6 +664,9 @@ class Ql1Model(Equilibria):
             _u = r['utils']
             _prob = np.divide(np.exp(precision_parm*_u),_denom)
             agent1_distr[_tl] = np.copy(_prob)[:,0]
+        
+        node.ql1_response['all_responses']['agent_1'] = np.array(ag_1_resp) 
+        
         node.ql1_response['distribution']['agent_1'] = agent1_distr
         node.ql1_response['distribution']['agent_2'] = agent2_distr
         f=1
@@ -734,8 +773,9 @@ class SatisficingEquilibria(Equilibria):
                     safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
                     step_util = u.combine_utils(u.progress_payoff_dist(ped_traj_l, 'agent_2'), safe_payoff_for_dist , gamma_matrix[1])
                     if node.level == last_decision_level:
-                        ext_safe_utils = peds_frag._next_node.mean_safe_util_contd
-                        cont_util = u.combine_utils(u.progress_payoff_dist(ped_traj_l, 'agent_2'), ext_safe_utils, gamma_matrix[1])
+                        ext_safe_utils = peds_frag._next_node.mean_safe_util_contd_ag2
+                        ext_prog_utils = peds_frag._next_node.mean_progress_util_contd_ag2 if peds_frag._next_node.mean_progress_util_contd_ag2 is not None else u.progress_payoff_dist(ped_traj_l, 'agent_2')
+                        cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[1])
                         _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
                         safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                     else:
@@ -857,8 +897,9 @@ class SatisficingEquilibria(Equilibria):
                     safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
                     step_util = u.combine_utils(u.progress_payoff_dist(veh_traj_l, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
                     if node.level == last_decision_level:
-                        ext_safe_utils = veh_frag._next_node.mean_safe_util_contd
-                        cont_util = u.combine_utils(u.progress_payoff_dist(veh_traj_l, 'agent_1'), ext_safe_utils, gamma_matrix[0])
+                        ext_safe_utils = veh_frag._next_node.mean_safe_util_contd_ag1
+                        ext_prog_utils = veh_frag._next_node.mean_progress_util_contd_ag1 if veh_frag._next_node.mean_progress_util_contd_ag1 is not None else u.progress_payoff_dist(veh_traj_l, 'agent_1')
+                        cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[0])
                         _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
                         safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                     else:

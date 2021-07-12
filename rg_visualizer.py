@@ -12,6 +12,7 @@ from matplotlib import animation
 from scipy.ndimage import gaussian_filter1d
 import math
 from equilibrium.range_estimation import MinDistanceGapModel
+import rg_constants
 
 
 
@@ -271,4 +272,32 @@ class UniWeberResultsAnalysis:
         f=1
         
         
+class RGvisualize():
+    
+    def plot_all_paths(self):
+        rg_constants.SCENE_TYPE = ('synthetic','intersection_clearance')
+        file_id = '1_1-3_0,33_17'
+        conn = sqlite3.connect(rg_constants.get_rg_db_path(file_id))
+        c = conn.cursor()
+        q_string = "select traj_id,time,x,y from TRAJECTORY_METADATA INNER JOIN TRAJECTORIES ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID AND TRAJECTORY_METADATA.AGENT_TYPE='agent_2' order by traj_id,time"
+        c.execute(q_string)
+        res = c.fetchall()
+        traj_dict = dict()
+        for row in res:
+            if row[0] not in traj_dict:
+                traj_dict[row[0]] = [(row[2],row[3])]
+            else:
+                traj_dict[row[0]].append((row[2],row[3]))
+        for k,v in traj_dict.items():
+            plt.plot([x[0] for x in v],[x[1] for x in v])
+            plt.arrow(v[-2][0], v[-2][1],v[-1][0]-v[-2][0] , v[-1][1]-v[-2][1], width=.5)
+        plt.ylim(4813900.6429128, 4814099.18)
+        plt.xlim(538786.97, 538864.038146639)
+        plt.axis('equal')
+        plt.show()
+
+if __name__ == '__main__':
+    vis = RGvisualize()
+    vis.plot_all_paths()
+                
         
