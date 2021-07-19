@@ -18,6 +18,11 @@ class UnsupportedAgentObservationException(Exception):
     
     def __init__(self,message):
         super().__init__(message)
+        
+class UnsupportedScenarioException(Exception):
+    
+    def __init__(self,message):
+        super().__init__(message)
 
 class TrajectoryCache:
     
@@ -90,6 +95,16 @@ class TrajectoryFragment:
     @property
     def loaded(self):
         return self._loaded
+    
+    @property
+    def manv_from_root(self):
+        #manv = ['-'.join([self.manv,self.manv_mode])]
+        manv = [self.manv]
+        if not self.is_last:
+            manv += self.next_fragment.manv_from_root
+        return manv
+        
+        
     
     @loaded.setter
     def loaded(self, value):

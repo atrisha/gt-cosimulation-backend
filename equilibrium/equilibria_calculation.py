@@ -11,7 +11,7 @@ from shapely.geometry import Polygon, LineString
 from equilibrium.utilities import Utilities
 from code_utils.utils import lighten_color
 import itertools
-from equilibrium.gametree_objects import TrajectoryFragment
+from equilibrium.gametree_objects import TrajectoryFragment, UnsupportedScenarioException
 from typing import List
 from code_utils import utils
 from shapely.geometry import multipoint, point, linestring, multilinestring, GeometryCollection
@@ -22,6 +22,7 @@ from code_utils.utils import get_all_level_nodes, get_nearest_node
 from code_utils.utils import *
 import copy
 from maps.map_info import IntersectionClearanceMapInfo
+
 
 #from figures import SIZE, set_limits, plot_coords, plot_bounds, plot_line_issimple
 
@@ -153,7 +154,7 @@ class Equilibria:
         for ctr,n in enumerate(l6_nodes):
             if hasattr(n, 'extd_util_calculated'):
                 continue
-            if rg_constants.SCENE_TYPE[0] == 'REAL':
+            if rg_constants.SCENE_TYPE[0] == 'REAL' or (rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['merge_before_intersection']):
                 print('adding contd utils....',ctr,'/',N)
             all_agents_ext_utils = self.calc_extended_util(n.path_from_root['agent_1'], n.path_from_root['agent_2'],n)
             
@@ -169,7 +170,7 @@ class Equilibria:
     
            
     def calc_extended_util(self,ag1_traj_frag,ag2_traj_frag,n):
-        if rg_constants.SCENE_TYPE[0] == 'REAL':
+        if rg_constants.SCENE_TYPE[0] == 'REAL' or (rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['merge_before_intersection']):
             ag1_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_1'][ag1_traj_frag.get_last().manv]
             try:
                 ag2_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_2'][ag2_traj_frag.get_last().manv]
@@ -214,7 +215,7 @@ class Equilibria:
                 ag2_ext_utils = (0.5,1)
             return [ag1_ext_utils,ag2_ext_utils]
         else:
-            return [(None,None),(None,None)]
+            raise UnsupportedScenarioException(str(rg_constants.SCENE_TYPE)) 
                 
                 
                 

@@ -285,8 +285,11 @@ class ScenarioDef:
             
         
             
-    def setup_trajectory_constraints(self):
-        maneuver_constraints = {'agent_1':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':self.agent1},'agent_2':{'maneuvers':{'wait':None,'track_speed':None}, 'agent_state':self.agent2}}
+    def setup_trajectory_constraints(self,maneuver_map = None):
+        if maneuver_map is not None:
+            maneuver_constraints = maneuver_map
+        else:
+            maneuver_constraints = {'agent_1':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':self.agent1},'agent_2':{'maneuvers':{'wait':None,'track_speed':None}, 'agent_state':self.agent2}}
         if len(self.agent1.waypoints) < 5:
             agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent1.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent1.waypoint_segments[i], self.agent1.direction) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [self.get_reasonable_velocities(self.agent1.waypoint_segments[-1], self.agent1.direction)]
         else:
@@ -305,7 +308,10 @@ class ScenarioDef:
         agent2_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent2.velocity,waypoints=self.agent2.waypoints,stop_horizon_dist_sampling_range=(agent_2_dist_2_stop-5,agent_2_dist_2_stop+5),stop_horizon_time_sampling_range=(agent_2_time_2_stop-2,agent_2_time_2_stop+2))
         agent2_traj_constr_proc = ProceedTrajectoryConstraints(waypoints=self.agent2.waypoints,waypoint_vel_sampling_range=agent2_vel_pts_proc)
         maneuver_constraints['agent_2']['maneuvers']['wait'] = agent2_traj_constr_wait
-        maneuver_constraints['agent_2']['maneuvers']['track_speed'] = agent2_traj_constr_proc
+        if 'track_speed' in maneuver_constraints['agent_2']['maneuvers']:
+            maneuver_constraints['agent_2']['maneuvers']['track_speed'] = agent2_traj_constr_proc
+        else:
+            maneuver_constraints['agent_2']['maneuvers']['turn'] = agent2_traj_constr_proc
         
         agent_1_dist_1_stop = math.hypot(self.agent1.waypoints[min_distgp_indx][0]-self.agent1.waypoints[0][0], self.agent1.waypoints[min_distgp_indx][1]-self.agent1.waypoints[0][1])
         agent_1_time_1_stop = agent_1_dist_1_stop/self.agent1.velocity if self.agent1.velocity !=0 else 2

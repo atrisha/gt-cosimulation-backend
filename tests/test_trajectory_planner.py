@@ -271,7 +271,7 @@ class TestScenario():
     
     def test_scene_769_1(self):
         
-        scene_def = ScenarioDef(agent_1_id=20, agent_2_id=None,file_id='769',initialize_db=False,start_ts=0,freq=0.5)
+        scene_def = ScenarioDef(agent_1_id=229, agent_2_id=None,file_id='775',initialize_db=False,start_ts= 227.227,freq=0.5)
         if scene_def.time_crossed:
             print('failed')
             raise Exception()
@@ -286,10 +286,10 @@ class TestScenario():
             lead_ag_obj = scene_def.agent
         '''
         lead_ag_obj = None
-        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='wait_for_lead_to_cross', ag_obj=ag_obj, lead_ag_obj=lead_ag_obj)
+        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='track_speed', ag_obj=ag_obj, lead_ag_obj=lead_ag_obj)
         #constr.set_limit_constraints()
         constr.set_limit_constraints(max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=6,max_jerk_lims=3)
-        agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver= 'wait_for_lead_to_cross', mode=None, horizon=6)
+        agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver= 'track_speed', mode=None, horizon=6)
         agent1_motion.generate_trajectory(True)
         assert hasattr(agent1_motion, 'all_trajectories') and len(agent1_motion.all_trajectories) > 0
         f=1

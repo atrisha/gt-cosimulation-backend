@@ -37,7 +37,7 @@ import ast
 from rg_visualizer import UniWeberAnalytics
 from os.path import isfile, join
 from equilibrium import game_tree
-from maps.map_info import IntersectionClearanceMapInfo
+from maps.map_info import IntersectionClearanceMapInfo, MergeBeforeIntersection
 from equilibrium.game_tree import *
 import rg_constants
 log = constants.common_logger
@@ -108,6 +108,58 @@ def run_intersection_clearance(run_id,agent1_id, agent2_id,agent1_vel, agent2_ve
     pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,file_id+'.gt'), gt)
     f=1
 
+def run_merge_before_intersection(run_id,agent1_id, agent2_id,agent1_vel, agent2_vel):
+    initialize_db=True
+    freq=0.5
+    file_id = str(run_id)+'_'+str(agent1_id)+'-'+str(agent2_id)+'_'+str(agent1_vel).replace('.',',')+'_'+str(agent2_vel).replace('.',',')
+    rg_constants.CURRENT_RG_FILE_ID = file_id
+    rg_constants.SCENE_TYPE = ('synthetic','merge_before_intersection')
+    rg_constants.TREE_FILES = 'D:\\repeated_games_data\\intersection_dataset\\'+rg_constants.SCENE_TYPE[0]+'\\'+rg_constants.SCENE_TYPE[1]+'\\'+'game_trees'
+    scene_def = TwoAgentSyntheticScenarioDef(initialize_db=initialize_db,file_id=file_id)
+    scene_def.add_agent(agent_tag='agent_1',agent_id=agent1_id, agent_init_velocity_mps=agent1_vel, agent_waypoints=MergeBeforeIntersection.ol_waypoints,agent_waypoint_segments=MergeBeforeIntersection.ol_waypoint_segments, direction='L_S_W', file_id=file_id,initialize_db=True,start_ts=0,freq=0.5)
+    scene_def.add_agent(agent_tag='agent_2',agent_id=agent2_id, agent_init_velocity_mps=agent2_vel, agent_waypoints=MergeBeforeIntersection.mv_waypoints,agent_waypoint_segments=MergeBeforeIntersection.mv_waypoint_segments, direction='L_S_W', file_id=file_id,initialize_db=True,start_ts=0,freq=0.5)
+    maneuver_map = {'agent_1':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':scene_def.agent1},'agent_2':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':scene_def.agent2}}
+    maneuver_constraints = scene_def.setup_trajectory_constraints(maneuver_map=maneuver_map)
+    tree_builder = TreeBuilder(freq,initialize_db)
+    tree_builder.build_complete_tree(maneuver_constraints)
+    if rg_constants.SCENE_TYPE[0] == 'REAL':
+        file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+    else:
+        file_id = rg_constants.CURRENT_RG_FILE_ID
+    gt = GameTree(file_id,freq)
+    gt.build_tree(maneuver_constraints)
+    type(gt.root).progress_ctr = 0
+    type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
+    m = MinDistanceGapModel(file_id,freq)
+    m.build_model()   
+    context = RunContext()
+    context.gt_obj = gt
+    manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'turn'}}
+    context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True,'maneuver_constraints':maneuver_constraints})
+    drassign_obj = AssignDistRanges()
+    drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
+    start_time = time.time()
+    eq_obj = SatisficingEquilibria(context)
+    gt.solve(eq_obj)
+    print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(RobustResponse(context))
+    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(Ql1Model(context))
+    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    
+    gt.scene_def = scene_def
+    #assign_emp_nodes(gt,gt.scene_def)
+    #gt.print_tree()
+    #plot_velocity_profiles(gt,scene_def,freq)
+    #gt.animate('mspe')
+    gt.maneuver_constraints = None
+    
+    pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,file_id+'.gt'), gt)
+    f=1
+
+
 def process_results_intersection_clearance():
     rg_constants.SCENE_TYPE = ('synthetic','intersection_clearance')
     rg_constants.TREE_FILES = 'D:\\repeated_games_data\\intersection_dataset\\'+rg_constants.SCENE_TYPE[0]+'\\'+rg_constants.SCENE_TYPE[1]+'\\'+'game_trees'
@@ -119,7 +171,10 @@ def process_results_intersection_clearance():
         #if ctidx > 10:
         #    break
         print('processing',ctidx+1,resfile_name)
-        gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,resfile_name))
+        try:
+            gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,resfile_name))
+        except:
+            continue
         l6_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=int(3/gt.freq))
         for l6n in l6_nodes:
             ag_1l = l6n.path_from_root['agent_1'].get_last().length
@@ -165,21 +220,22 @@ def process_results_intersection_clearance():
                                 if min(resp_range_ag1) <= ag_1l_pp <= max(resp_range_ag1) and min(resp_range_ag2) <= ag_2l_pp <= max(resp_range_ag2):
                                     if resfile_name not in results_map:
                                         results_map[resfile_name] = {k:dict() for k in model_types}
-                                    results_map[resfile_name][m_type][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'].loaded_traj,l6n.path_from_root['agent_2'].loaded_traj)
+                                    results_map[resfile_name][m_type][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'],l6n.path_from_root['agent_2'])
                     if resfile_name not in results_map:
                         results_map[resfile_name] = {k:dict() for k in model_types}
                     if hasattr(l6n, 'on_mspe') and l6n.on_mspe[i,j]:
                         if 'mspe' not in results_map[resfile_name]:
                             results_map[resfile_name]['mspe'] = dict() 
-                        results_map[resfile_name]['mspe'][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'].loaded_traj,l6n.path_from_root['agent_2'].loaded_traj)
+                        results_map[resfile_name]['mspe'][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'],l6n.path_from_root['agent_2'])
                     if hasattr(l6n, 'on_uspe') and l6n.on_uspe[i,j]:
                         if 'uspe' not in results_map[resfile_name]:
                             results_map[resfile_name]['uspe'] = dict() 
-                        results_map[resfile_name]['uspe'][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'].loaded_traj,l6n.path_from_root['agent_2'].loaded_traj)
+                        results_map[resfile_name]['uspe'][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'],l6n.path_from_root['agent_2'])
+                        
                         
                         
     succ_ct = None
-    succ_map_speed,succ_map_type = OrderedDict(), OrderedDict()
+    succ_map_speed,succ_map_type,strat_types = OrderedDict(), OrderedDict(), OrderedDict()
     for k12 in results_map.keys():
         for k13 in results_map.keys():
             
@@ -194,8 +250,11 @@ def process_results_intersection_clearance():
                         for type_comb2 in results_map[k13][m_type].keys():
                             if type_comb1[0] == type_comb2[0]:
                                 ''' agent 1's velocity and type matches, so we can check this scenario now '''
-                                ag1_l, ag2_l, ag1_traj, ag2_traj = results_map[k12][m_type][type_comb1]
-                                ag1_l2, ag3_l, ag1_traj, ag3_traj = results_map[k13][m_type][type_comb2]
+                                ag1_l, ag2_l, ag1_traj_frag, ag2_traj_frag = results_map[k12][m_type][type_comb1]
+                                ag1_l2, ag3_l, ag1_traj_frag, ag3_traj_frag = results_map[k13][m_type][type_comb2]
+                                ag1_traj = ag1_traj_frag.loaded_traj
+                                ag2_traj = ag2_traj_frag.loaded_traj
+                                ag3_traj = ag3_traj_frag.loaded_traj
                                 if max([ag1_l,ag1_l2]) >= 20 and (ag2_l <= IntersectionClearanceMapInfo.st1_on_intersection_distance[0] or ag2_l >= IntersectionClearanceMapInfo.st1_on_intersection_distance[1]) \
                                     and (ag3_l <= 50 or ag3_l >= IntersectionClearanceMapInfo.st2_on_intersection_distance[1]):
                                     dist_gap12 = u.calc_dist_gap(veh_traj = ag1_traj, ped_traj = ag2_traj)
@@ -225,13 +284,35 @@ def process_results_intersection_clearance():
                                     if m_type not in succ_map_type[(lt_type, st1_type, st2_type)]:
                                         succ_map_type[(lt_type, st1_type, st2_type)][m_type] = 0
                                     succ_map_type[(lt_type, st1_type, st2_type)][m_type] += 1
+                                    
+                                    if m_type not in strat_types:
+                                        strat_types[m_type] = dict()
+                                    ag1_manvs = tuple(ag1_traj_frag.manv_from_root)
+                                    ag2_manvs = tuple(ag2_traj_frag.manv_from_root)
+                                    ag3_manvs = tuple(ag3_traj_frag.manv_from_root)
+                                    if tuple([ag1_manvs,ag2_manvs,ag3_manvs]) not in strat_types[m_type]:
+                                        strat_types[m_type][tuple([ag1_manvs,ag2_manvs,ag3_manvs])] = 1
+                                    else:
+                                        strat_types[m_type][tuple([ag1_manvs,ag2_manvs,ag3_manvs])] += 1
+                                
+                                    
+                                    
                                         
 
     for k,v in succ_ct.items():
         print(k,':',v)         
     type_arr = list(itertools.product([0,1,2,3,4],[0,1,2,3,4],[0,1,2,3,4]))
     #type_arr = [tuple([str(y) for y in list(x)]) for x in list(itertools.product([0,0.5,1,1.5,2],[10,12,15,17,20],[10,12,15,17,20]))]
-    
+    for k,v in strat_types.items():
+        plt.figure()
+        plt.title(k+' - strat type')
+        plt.gcf().subplots_adjust(bottom=.5)
+        plt.bar(np.arange(len(v)), list(v.values()), align='center', alpha=0.5)
+        plt.xticks(np.arange(len(v)), list(v.keys()),fontsize=6)
+        plt.xticks(rotation=90)
+        
+        
+        
     all_models = model_types + ['mspe','uspe']
     N = len(type_arr)
     all_data = []
@@ -292,5 +373,5 @@ if __name__ == '__main__':
     rg_utils.plot_heatmap(plt, fig, axs[1], xax_legend)
     plt.show()
     '''
-    process_results_intersection_clearance()
-    
+    #process_results_intersection_clearance()
+    run_merge_before_intersection(1,1, 2,.9, 1.8)

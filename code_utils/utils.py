@@ -56,6 +56,8 @@ def get_reasonable_velocities(seg,direction=None,ag_obj=None):
         target_vels = (target_vels[0]/2,target_vels[1]/2)
     if ag_obj is not None and ag_obj.velocity < 0.5:
         target_vels = (0.5,target_vels[1]/2)
+    if ag_obj is not None and ag_obj.velocity < target_vels[0]:
+        target_vels = (ag_obj.velocity,target_vels[1])
     return target_vels
     
 

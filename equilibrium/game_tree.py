@@ -359,7 +359,10 @@ class TreeBuilder:
     
     def construct_centerline(self,dist,ag,v0,maneuver_constraints,point):
         path = maneuver_constraints[ag]['agent_state'].waypoints
-        waypoint_velocity = maneuver_constraints[ag]['maneuvers']['turn'].waypoint_vel_sampling_range if ag == 'agent_1' else maneuver_constraints[ag]['maneuvers']['track_speed'].waypoint_vel_sampling_range
+        if rg_constants.SCENE_TYPE == ('synthetic','merge_before_intersection'):
+            waypoint_velocity = maneuver_constraints[ag]['maneuvers']['turn'].waypoint_vel_sampling_range
+        else:
+            waypoint_velocity = maneuver_constraints[ag]['maneuvers']['turn'].waypoint_vel_sampling_range if ag == 'agent_1' else maneuver_constraints[ag]['maneuvers']['track_speed'].waypoint_vel_sampling_range
         dist_from_origin = [0] + [math.hypot(p2[0]-p1[0], p2[1]-p1[1]) for p1,p2 in list(zip(path[:-1],path[1:]))]
         dist_from_origin = np.cumsum(dist_from_origin)
         path_idx = find_index_in_list(dist, dist_from_origin)
