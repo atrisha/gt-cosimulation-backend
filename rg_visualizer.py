@@ -13,6 +13,7 @@ from scipy.ndimage import gaussian_filter1d
 import math
 from equilibrium.range_estimation import MinDistanceGapModel
 import rg_constants
+from maps.map_info import ParkingPullout
 
 
 
@@ -194,7 +195,7 @@ class UniWeberAnalytics:
         res = c.fetchall()
         m = MinDistanceGapModel(self.file_id)
         
-    def animate_scene(self,trajs_list):
+    def animate_scene(self,trajs_list,im_type=None):
         
         fig, ax = plt.subplots()
         lines = [plt.plot([], [],lw=2)[0] for _ in range(len(trajs_list))] 
@@ -202,9 +203,13 @@ class UniWeberAnalytics:
         #plt.ylim(4813970, 4814055)
         
         #plot_traffic_regions(ax)
+        if im_type is None:
+            img = plt.imread("D:\\behavior modeling\\background.jpg")
+            ax.imshow(img, extent=[538780, 538890, 4813970, 4814055])
+        else:
+            img = plt.imread("D:\\behavior modeling\\assorted_figures\\park_pullout_background.png")
+            ax.imshow(img, extent = ParkingPullout.img_extent)
         
-        img = plt.imread("D:\\behavior modeling\\background.jpg")
-        ax.imshow(img, extent=[538780, 538890, 4813970, 4814055])
         
         # initialization function: plot the background of each frame
         patches = lines

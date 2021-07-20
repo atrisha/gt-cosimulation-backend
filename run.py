@@ -37,7 +37,7 @@ import ast
 from rg_visualizer import UniWeberAnalytics
 from os.path import isfile, join
 from equilibrium import game_tree
-from maps.map_info import IntersectionClearanceMapInfo, MergeBeforeIntersection
+from maps.map_info import IntersectionClearanceMapInfo, MergeBeforeIntersection, ParkingPullout
 from equilibrium.game_tree import *
 import rg_constants
 log = constants.common_logger
@@ -121,6 +121,7 @@ def run_merge_before_intersection(run_id,agent1_id, agent2_id,agent1_vel, agent2
     maneuver_map = {'agent_1':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':scene_def.agent1},'agent_2':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':scene_def.agent2}}
     maneuver_constraints = scene_def.setup_trajectory_constraints(maneuver_map=maneuver_map)
     tree_builder = TreeBuilder(freq,initialize_db)
+    maneuver_constraints['agent_1']['step_dist'],maneuver_constraints['agent_2']['step_dist'] = 2,2
     tree_builder.build_complete_tree(maneuver_constraints)
     if rg_constants.SCENE_TYPE[0] == 'REAL':
         file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
@@ -154,6 +155,60 @@ def run_merge_before_intersection(run_id,agent1_id, agent2_id,agent1_vel, agent2
     #gt.print_tree()
     #plot_velocity_profiles(gt,scene_def,freq)
     #gt.animate('mspe')
+    gt.maneuver_constraints = None
+    
+    pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,file_id+'.gt'), gt)
+    f=1
+
+
+def run_parking_pullout(run_id,agent1_id, agent2_id,agent1_vel, agent2_vel):
+    initialize_db=True
+    freq=0.5
+    file_id = str(run_id)+'_'+str(agent1_id)+'-'+str(agent2_id)+'_'+str(agent1_vel).replace('.',',')+'_'+str(agent2_vel).replace('.',',')
+    rg_constants.CURRENT_RG_FILE_ID = file_id
+    rg_constants.SCENE_TYPE = ('synthetic','parking_pullout')
+    rg_constants.TREE_FILES = 'D:\\repeated_games_data\\intersection_dataset\\'+rg_constants.SCENE_TYPE[0]+'\\'+rg_constants.SCENE_TYPE[1]+'\\'+'game_trees'
+    scene_def = TwoAgentSyntheticScenarioDef(initialize_db=initialize_db,file_id=file_id)
+    scene_def.add_agent(agent_tag='agent_1',agent_id=agent1_id, agent_init_velocity_mps=agent1_vel, agent_waypoints=ParkingPullout.pv_waypoints,agent_waypoint_segments=ParkingPullout.pv_waypoint_segments, direction='L_S_N', file_id=file_id,initialize_db=True,start_ts=0,freq=0.5)
+    scene_def.add_agent(agent_tag='agent_2',agent_id=agent2_id, agent_init_velocity_mps=agent2_vel, agent_waypoints=ParkingPullout.st_waypoints,agent_waypoint_segments=ParkingPullout.st_waypoint_segments, direction='L_S_W', file_id=file_id,initialize_db=True,start_ts=0,freq=0.5)
+    maneuver_constraints = scene_def.setup_trajectory_constraints()
+    for k,v in maneuver_constraints['agent_1']['maneuvers'].items():
+        setattr(v, 'path_degree', 3)
+    tree_builder = TreeBuilder(freq,initialize_db)
+    tree_builder.build_complete_tree(maneuver_constraints)
+    if rg_constants.SCENE_TYPE[0] == 'REAL':
+        file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+    else:
+        file_id = rg_constants.CURRENT_RG_FILE_ID
+    gt = GameTree(file_id,freq)
+    gt.build_tree(maneuver_constraints)
+    type(gt.root).progress_ctr = 0
+    type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
+    m = MinDistanceGapModel(file_id,freq)
+    m.build_model()   
+    context = RunContext()
+    context.gt_obj = gt
+    manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'turn'}}
+    context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True,'maneuver_constraints':maneuver_constraints})
+    drassign_obj = AssignDistRanges()
+    drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
+    start_time = time.time()
+    eq_obj = SatisficingEquilibria(context)
+    gt.solve(eq_obj)
+    print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(RobustResponse(context))
+    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(Ql1Model(context))
+    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    
+    gt.scene_def = scene_def
+    #assign_emp_nodes(gt,gt.scene_def)
+    #gt.print_tree()
+    #plot_velocity_profiles(gt,scene_def,freq)
+    im_type = 'parking_pullout'
+    #gt.animate('mspe',im_type)
     gt.maneuver_constraints = None
     
     pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,file_id+'.gt'), gt)
@@ -350,28 +405,133 @@ def process_results_intersection_clearance():
     rg_utils.plot_heatmap(plt, fig, axs[1], xax_legend)
     plt.show()
     f=1
+    
+class ProcessResults:
+    
+    def generate_results_map(self):
+        treefiles = [f for f in listdir(rg_constants.TREE_FILES) if isfile(join(rg_constants.TREE_FILES, f))]
+        model_types = ['auto_resp','ql1_resp','robust_resp']
+        results_map = dict()
+        u = Utilities()
+        for ctidx,resfile_name in enumerate(treefiles):
+            #if ctidx > 10:
+            #    break
+            print('processing',ctidx+1,resfile_name)
+            try:
+                gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,resfile_name))
+            except:
+                continue
+            l6_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=int(3/gt.freq))
+            for l6n in l6_nodes:
+                ag_1l = l6n.path_from_root['agent_1'].get_last().length
+                ag_2l = l6n.path_from_root['agent_2'].get_last().length
+                for i in np.arange(5):
+                    for j in np.arange(5):
+                        for m_type in model_types:
+                            if m_type == 'auto_resp':
+                                resp_range_ag1 = (l6n.parent.auto_strategy_response['agent_1'][0][i,j]['traj_l'], l6n.parent.auto_strategy_response['agent_1'][1][i,j]['traj_l'])
+                                resp_range_ag2 = (l6n.parent.auto_strategy_response['agent_2'][0][i,j]['traj_l'], l6n.parent.auto_strategy_response['agent_2'][1][i,j]['traj_l'])
+                            elif m_type == 'ql1_resp':
+                                resp_range_ag1 = (l6n.parent.ql1_response['response']['agent_1'][i,j]['traj_l'], l6n.parent.ql1_response['response']['agent_1'][i,j]['traj_l'])
+                                resp_range_ag2 = (l6n.parent.ql1_response['response']['agent_2'][i,j]['traj_l'], l6n.parent.ql1_response['response']['agent_2'][i,j]['traj_l'])
+                            elif m_type == 'robust_resp':
+                                resp_range_ag1 = (l6n.parent.robust_response['agent_1'][i,0].veh_eq_acts[0], l6n.parent.robust_response['agent_1'][i,0].veh_eq_acts[1])
+                                resp_range_ag2 = (l6n.parent.robust_response['agent_2'][i,0].peds_eq_acts[0], l6n.parent.robust_response['agent_2'][i,0].peds_eq_acts[1])
+                            if min(resp_range_ag1) <= ag_1l <= max(resp_range_ag1) and min(resp_range_ag2) <= ag_2l <= max(resp_range_ag2):
+                                ag_1l_p = l6n.parent.path_from_root['agent_1'].get_last().length
+                                ag_2l_p = l6n.parent.path_from_root['agent_2'].get_last().length
+                                if m_type == 'auto_resp':
+                                    resp_range_ag1 = (l6n.parent.parent.auto_strategy_response['agent_1'][0][i,j]['traj_l'], l6n.parent.parent.auto_strategy_response['agent_1'][1][i,j]['traj_l'])
+                                    resp_range_ag2 = (l6n.parent.parent.auto_strategy_response['agent_2'][0][i,j]['traj_l'], l6n.parent.parent.auto_strategy_response['agent_2'][1][i,j]['traj_l'])
+                                elif m_type == 'ql1_resp':
+                                    resp_range_ag1 = (l6n.parent.parent.ql1_response['response']['agent_1'][i,j]['traj_l'], l6n.parent.parent.ql1_response['response']['agent_1'][i,j]['traj_l'])
+                                    resp_range_ag2 = (l6n.parent.parent.ql1_response['response']['agent_2'][i,j]['traj_l'], l6n.parent.parent.ql1_response['response']['agent_2'][i,j]['traj_l'])
+                                elif m_type == 'robust_resp':
+                                    resp_range_ag1 = (l6n.parent.parent.robust_response['agent_1'][i,0].veh_eq_acts[0], l6n.parent.parent.robust_response['agent_1'][i,0].veh_eq_acts[1])
+                                    resp_range_ag2 = (l6n.parent.parent.robust_response['agent_2'][i,0].peds_eq_acts[0], l6n.parent.parent.robust_response['agent_2'][i,0].peds_eq_acts[1])
+                            
+                                if min(resp_range_ag1) <= ag_1l_p <= max(resp_range_ag1) and min(resp_range_ag2) <= ag_2l_p <= max(resp_range_ag2):
+                                    ag_1l_pp = l6n.parent.parent.path_from_root['agent_1'].get_last().length
+                                    ag_2l_pp = l6n.parent.parent.path_from_root['agent_2'].get_last().length
+                                    if m_type == 'auto_resp':
+                                        resp_range_ag1 = (l6n.parent.parent.parent.auto_strategy_response['agent_1'][0][i,j]['traj_l'], l6n.parent.parent.parent.auto_strategy_response['agent_1'][1][i,j]['traj_l'])
+                                        resp_range_ag2 = (l6n.parent.parent.parent.auto_strategy_response['agent_2'][0][i,j]['traj_l'], l6n.parent.parent.parent.auto_strategy_response['agent_2'][1][i,j]['traj_l'])
+                                    elif m_type == 'ql1_resp':
+                                        resp_range_ag1 = (l6n.parent.parent.parent.ql1_response['response']['agent_1'][i,j]['traj_l'], l6n.parent.parent.parent.ql1_response['response']['agent_1'][i,j]['traj_l'])
+                                        resp_range_ag2 = (l6n.parent.parent.parent.ql1_response['response']['agent_2'][i,j]['traj_l'], l6n.parent.parent.parent.ql1_response['response']['agent_2'][i,j]['traj_l'])
+                                    elif m_type == 'robust_resp':
+                                        resp_range_ag1 = (l6n.parent.parent.parent.robust_response['agent_1'][i,0].veh_eq_acts[0], l6n.parent.parent.parent.robust_response['agent_1'][i,0].veh_eq_acts[1])
+                                        resp_range_ag2 = (l6n.parent.parent.parent.robust_response['agent_2'][i,0].peds_eq_acts[0], l6n.parent.parent.parent.robust_response['agent_2'][i,0].peds_eq_acts[1])
+                            
+                                    if min(resp_range_ag1) <= ag_1l_pp <= max(resp_range_ag1) and min(resp_range_ag2) <= ag_2l_pp <= max(resp_range_ag2):
+                                        if resfile_name not in results_map:
+                                            results_map[resfile_name] = {k:dict() for k in model_types}
+                                        results_map[resfile_name][m_type][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'],l6n.path_from_root['agent_2'])
+                        if resfile_name not in results_map:
+                            results_map[resfile_name] = {k:dict() for k in model_types}
+                        if hasattr(l6n, 'on_mspe') and l6n.on_mspe[i,j]:
+                            if 'mspe' not in results_map[resfile_name]:
+                                results_map[resfile_name]['mspe'] = dict() 
+                            results_map[resfile_name]['mspe'][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'],l6n.path_from_root['agent_2'])
+                        if hasattr(l6n, 'on_uspe') and l6n.on_uspe[i,j]:
+                            if 'uspe' not in results_map[resfile_name]:
+                                results_map[resfile_name]['uspe'] = dict() 
+                            results_map[resfile_name]['uspe'][(i,j)] = (l6n.path_from_root['agent_1'].total_length,l6n.path_from_root['agent_2'].total_length,l6n.path_from_root['agent_1'],l6n.path_from_root['agent_2'])
+        return results_map            
+    
+    def process_merge_before_intersection(self):
+        rg_constants.SCENE_TYPE = ('synthetic','merge_before_intersection')
+        rg_constants.TREE_FILES = 'D:\\repeated_games_data\\intersection_dataset\\'+rg_constants.SCENE_TYPE[0]+'\\'+rg_constants.SCENE_TYPE[1]+'\\'+'game_trees'
+    
+    
+class ScenarioRunner():
+    
+    def __init__(self,scenario_type):
+        rg_constants.SCENE_TYPE = scenario_type#('synthetic','intersection_clearance')
+        rg_constants.TREE_FILES = 'D:\\repeated_games_data\\intersection_dataset\\'+rg_constants.SCENE_TYPE[0]+'\\'+rg_constants.SCENE_TYPE[1]+'\\'+'game_trees'
+    
+    def run_scene(self):
+        if rg_constants.SCENE_TYPE == ('synthetic','merge_before_intersection'):
+            agent1_id, agent2_id = 1, 2
+            run_id = 0
+            for ag_vels in itertools.product(np.linspace(0,10,20).tolist(),np.linspace(0,3,5).tolist()):
+                run_id += 1
+                file_id = str(run_id)+'_'+str(agent1_id)+'-'+str(agent2_id)+'_'+str(ag_vels[0]).replace('.',',')+'_'+str(ag_vels[1]).replace('.',',')
+                if os.path.isfile(os.path.join(rg_constants.TREE_FILES,file_id+'.gt')):
+                    print('file',file_id,'processed....continuing')
+                    continue
+                run_merge_before_intersection(run_id,agent1_id, agent2_id,ag_vels[0], ag_vels[1])
+        elif rg_constants.SCENE_TYPE == ('synthetic','parking_pullout'):
+            agent1_id, agent2_id = 1, 2
+            run_id = 0
+            for ag_vels in itertools.product(np.linspace(10,20,20).tolist(),np.linspace(0,1,5).tolist()):
+                run_id += 1
+                file_id = str(run_id)+'_'+str(agent1_id)+'-'+str(agent2_id)+'_'+str(ag_vels[0]).replace('.',',')+'_'+str(ag_vels[1]).replace('.',',')
+                if os.path.isfile(os.path.join(rg_constants.TREE_FILES,file_id+'.gt')):
+                    print('file',file_id,'processed....continuing')
+                    continue
+                try:
+                    run_parking_pullout(run_id,agent1_id, agent2_id,ag_vels[0], ag_vels[1])
+                except UnsupportedLatticeException:
+                    print('file',file_id,'raised UnsupportedLatticeException....continuing')
+        elif rg_constants.SCENE_TYPE == ('synthetic','intersection_clearance'):
+            agent1_id = 1
+            run_id = 0
+            for ag_vels in itertools.product([0,0.5,1,1.5,2],[10,12,15,17,20]):
+                run_id += 1
+                for ag2id in [2,3]:
+                    file_id = str(run_id)+'_'+str(agent1_id)+'-'+str(ag2id)+'_'+str(ag_vels[0]).replace('.',',')+'_'+str(ag_vels[1]).replace('.',',')
+                    if os.path.isfile(os.path.join(rg_constants.TREE_FILES,file_id+'.gt')):
+                        print('file',file_id,'processed....continuing')
+                        continue
+                    run_intersection_clearance(run_id,agent1_id, ag2id,ag_vels[0], ag_vels[1])
+        else:
+            raise UnsupportedScenarioException(rg_constants.SCENE_TYPE)
+            
                     
 if __name__ == '__main__':
-    rg_constants.SCENE_TYPE = ('synthetic','intersection_clearance')
-    rg_constants.TREE_FILES = 'D:\\repeated_games_data\\intersection_dataset\\'+rg_constants.SCENE_TYPE[0]+'\\'+rg_constants.SCENE_TYPE[1]+'\\'+'game_trees'
-    '''
-    agent1_id = 1
-    run_id = 0
-    for ag_vels in itertools.product([0,0.5,1,1.5,2],[10,12,15,17,20]):
-        run_id += 1
-        for ag2id in [2,3]:
-            file_id = str(run_id)+'_'+str(agent1_id)+'-'+str(ag2id)+'_'+str(ag_vels[0]).replace('.',',')+'_'+str(ag_vels[1]).replace('.',',')
-            if os.path.isfile(os.path.join(rg_constants.TREE_FILES,file_id+'.gt')):
-                print('file',file_id,'processed....continuing')
-                continue
-            run_intersection_clearance(run_id,agent1_id, ag2id,ag_vels[0], ag_vels[1])
-    '''
-    '''
-    fig, axs = plt.subplots(2)
-    type_arr = [tuple([str(y) for y in list(x)]) for x in list(itertools.product([0,0.5,1,1.5,2],[10,12,15,17,20],[10,12,15,17,20]))]
-    xax_legend = np.asarray(type_arr).T
-    rg_utils.plot_heatmap(plt, fig, axs[1], xax_legend)
-    plt.show()
-    '''
-    #process_results_intersection_clearance()
-    run_merge_before_intersection(1,1, 2,.9, 1.8)
+    
+    scenario = ('synthetic','parking_pullout')
+    runner = ScenarioRunner(scenario)
+    runner.run_scene()
+    

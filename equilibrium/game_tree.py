@@ -419,7 +419,11 @@ class TreeBuilder:
             for ag in ['agent_1','agent_2']:
                 tot_states = 0
                 state_lattice[t[0]+t[1]][ag] = dict()
-                lattice_dist_step = 0.5 if ag == 'agent_1' else 5
+                
+                if 'step_dist' in maneuver_constraints[ag]:
+                    lattice_dist_step = maneuver_constraints[ag]['step_dist']
+                else:
+                    lattice_dist_step = 0.5 if ag == 'agent_1' else 5
                 
                 print("--",ag,'init states (s,x,y)',"--")
                 for manv in maneuver_constraints[ag]['maneuvers'].keys():
@@ -976,7 +980,7 @@ class GameTree:
             self.results = dict()
         self.root.print_Node(6,self.results)
         
-    def animate(self,soln_type):
+    def animate(self,soln_type,im_type=None):
         analytics_obj = UniWeberAnalytics(constants.CURRENT_FILE_ID)
         done = []
         all_vels = [[],[]]
@@ -1002,7 +1006,7 @@ class GameTree:
                                     all_vels[0] = [(x[6],x[3]) for x in node.path_from_root['agent_1'].loaded_traj]
                                     all_vels[1] = [(x[6],x[3]) for x in node.path_from_root['agent_2'].loaded_traj]
                                     print('----')
-                                    analytics_obj.animate_scene(all_trajs)
+                                    analytics_obj.animate_scene(all_trajs,im_type)
                                     done.append((i,j))
                 node.animation_done = True
                             
@@ -1038,10 +1042,15 @@ class GameTree:
             veh_lattice_states,latc_tracker_veh = dict(),dict()
             #peds_res = np.array([(x[0],x[1],x[2],LA.norm([x[3],x[4]]),LA.norm([x[3],x[4]]),x[5],x[6],x[7],x[8],x[9],x[10]) for x in peds_res])
             peds_lattice_states,latc_tracker_ped = dict(), dict()
-            lattice_dist_step_ag1 = 0.5
-            lattice_vel_step_ag1 = 0.3
-            lattice_dist_step_ag2 = 5
-            lattice_vel_step_ag2 = 1
+            
+            if 'step_dist' in self.maneuver_constraints['agent_1']:
+                lattice_dist_step_ag1 = self.maneuver_constraints['agent_1']['step_dist']
+            else:
+                lattice_dist_step_ag1 = 0.5
+            if 'step_dist' in self.maneuver_constraints['agent_2']:
+                lattice_dist_step_ag2 = self.maneuver_constraints['agent_2']['step_dist']
+            else:
+                lattice_dist_step_ag2 = 5
                 
             for idx1,veh_row in enumerate(veh_res):
                 parent_traj_id = veh_row[-1] if veh_row[-1] is not None else veh_row[-2]

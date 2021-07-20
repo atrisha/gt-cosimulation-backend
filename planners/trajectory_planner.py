@@ -284,9 +284,13 @@ class TrajectoryPlanner:
             xspl_order,yspl_order = 2,2
             if self.print_console:
                 print(indx)
+            if hasattr(self.traj_constr_obj, 'path_degree'):
+                k = self.traj_constr_obj.path_degree
+            else:
+                k = 2
             if len(indx) > 2 and not (min([x[0] for x in wp]) == max([x[0] for x in wp])):
                 try:
-                    self.cs_x = UnivariateSpline(indx,[x[0] for x in wp],k=2)
+                    self.cs_x = UnivariateSpline(indx,[x[0] for x in wp],k=k)
                 except ValueError:
                     print(indx,[x[0] for x in wp])
                     #plt.plot(indx,[x[0] for x in wp])
@@ -301,7 +305,7 @@ class TrajectoryPlanner:
                 try:
                     _x = indx
                     _y = [x[1] for x in wp]
-                    self.cs_y = UnivariateSpline(_x,_y,k=2)
+                    self.cs_y = UnivariateSpline(_x,_y,k=k)
                 except:
                     raise
             else:
@@ -318,7 +322,8 @@ class TrajectoryPlanner:
                 plt.plot([x[0] for x in wp],[x[1] for x in wp],'kx')
             else:
                 plt.plot([x[0] for x in wp],[x[1] for x in wp],'x')
-            '''            
+            plt.show()        
+            '''
             residuals = []
             for _i,i in enumerate(indx):
                 _res = math.hypot(x_corrected(i)-self.centerline[_i][0], y_corrected(i)-self.centerline[_i][1])
@@ -328,6 +333,7 @@ class TrajectoryPlanner:
             res_map.append((_max_res,self.cs_x,self.cs_y))
             
         res_map.sort(key=lambda tup: tup[0])
+        self.cs_x_list, self.cs_y_list = [x[1] for x in res_map], [x[2] for x in res_map]
         self.cs_x, self.cs_y = res_map[0][1],res_map[0][2]
         err_x = self.cs_x(0) - self.centerline[0][0]
         x_corrected = lambda x : self.cs_x(x) - err_x
@@ -342,6 +348,10 @@ class TrajectoryPlanner:
         xd = self.cs_x.derivative(1)
         yd = self.cs_y.derivative(1)
         plot_indx_x = np.linspace(indx[0],indx[-1],100)
+        f_dx = self.cs_x.derivative(1)
+        f_dy = self.cs_y.derivative(1)
+        f = lambda x : math.hypot(f_dx(x),f_dy(x))
+        self.arcl = scipy.integrate.quad(f,0,1)[0]
         if xdd is not None and ydd is not None:
             self.curvature = lambda x: abs(((xd(x)/yd(x))*(ydd(x)/xd(x)**2) - (yd(x)/xd(x))*(xdd(x)/yd(x)**2))) / np.power((xd(x)/yd(x))** 2 + (yd(x)/xd(x))** 2, 3 / 2)
         else:
@@ -414,6 +424,17 @@ class TrajectoryPlanner:
                     v_corrected = lambda x : abs(self.cs_v(x) - err)
                 else:
                     v_corrected = self.cs_v
+                
+                if hasattr(self.traj_constr_obj,'lateral_path_sampling') and self.traj_constr_obj.lateral_path_sampling:
+                    p_idx = np.random.randint(low=0, high=len(self.cs_x_list))
+                    self.cs_x = self.cs_x_list[p_idx]
+                    self.cs_y = self.cs_y_list[p_idx]
+                
+                f_dx = self.cs_x.derivative(1)
+                f_dy = self.cs_y.derivative(1)
+                f = lambda x : math.hypot(f_dx(x),f_dy(x))
+                self.arcl = scipy.integrate.quad(f,0,1)[0]
+                
                 err_x = self.cs_x(0) - self.centerline[0][0]
                 x_corrected = lambda x : self.cs_x(x) - err_x
                 err_y = self.cs_y(0) - self.centerline[0][1]
@@ -533,10 +554,6 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
         calculate the arc length of the generated path 
         '''
         
-        f_dx = self.cs_x.derivative(1)
-        f_dy = self.cs_y.derivative(1)
-        f = lambda x : math.hypot(f_dx(x),f_dy(x))
-        self.arcl = scipy.integrate.quad(f,0,1)[0]
         '''
         scale an axis with respect to the arc length
         '''
@@ -655,10 +672,7 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
         calculate the arc length of the generated path 
         '''
         
-        f_dx = self.cs_x.derivative(1)
-        f_dy = self.cs_y.derivative(1)
-        f = lambda x : math.hypot(f_dx(x),f_dy(x))
-        self.arcl = scipy.integrate.quad(f,0,1)[0]
+        
         '''
         scale an axis with respect to the arc length
         '''

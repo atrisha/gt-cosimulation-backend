@@ -99,6 +99,7 @@ class TrajectoryConstraintsFactory:
             constr = ProceedTrajectoryConstraints(waypoints=ag_obj.waypoints,waypoint_vel_sampling_range=vel_pts_proc)
         else:   
             raise UnsupportedManeuverException(maneuver)
+        constr.lateral_path_sampling = True
         return constr
 
 
