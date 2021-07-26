@@ -6,6 +6,7 @@ Created on Apr 14, 2021
 import sqlite3
 from shapely.geometry import LineString, Point
 from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints
+from equilibrium.gametree_objects import UnsupportedScenarioException
 import constants
 import numpy as np
 import math
@@ -72,6 +73,11 @@ class TrajectoryConstraintsFactory:
             _min_dist_2_lead = [math.hypot(lead_ag_obj.waypoints[0][0]-x[0],lead_ag_obj.waypoints[0][1]-x[1]) for x in ag_obj.waypoints]
             _mindist = min(_min_dist_2_lead)
             _mindist_idx = _min_dist_2_lead.index(_mindist)
+            if hasattr(ag_obj, 'lead_veh_velocity_target'):
+                if lead_ag_obj.velocity <= 2 and ag_obj.lead_veh_velocity_target > 2:
+                    raise UnsupportedScenarioException("Lead vehicle velocity is set too high")
+                if lead_ag_obj.velocity > 2 and ag_obj.lead_veh_velocity_target <= 2:
+                    raise UnsupportedScenarioException("Lead vehicle velocity is set too low")
             lead_vel = lead_ag_obj.velocity if not hasattr(ag_obj, 'lead_veh_velocity_target') else ag_obj.lead_veh_velocity_target
             lead_vel = max(1,lead_vel)
             if lead_ag_obj.velocity > 2:

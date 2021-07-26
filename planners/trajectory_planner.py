@@ -376,7 +376,7 @@ class TrajectoryPlanner:
     def generate_trajectory(self,all=None):
         horizon = self.horizon
         self.generate_path()
-        if self.v0 == 0 and isinstance(self.traj_constr_obj, WaitTrajectoryConstraints):
+        if round(self.v0,2) < 0.1 and isinstance(self.traj_constr_obj, WaitTrajectoryConstraints):
             yaw = math.atan2(self.cs_y.derivative()(0), self.cs_x.derivative()(0))
             traj = []
             all_trajs = {'aggressive':[],'normal':[]}

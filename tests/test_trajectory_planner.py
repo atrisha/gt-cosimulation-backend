@@ -7,6 +7,7 @@ import unittest
 from planners.trajectory_planner import TrajectoryPlanner, VehicleTrajectoryPlanner, PedestrianTrajectoryPlanner
 from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints
 from planners.planning_objects import TrajectoryConstraintsFactory
+from motion_planners.planning_objects import VehicleState
 from maps.States import SyntheticScenarioDef
 import sqlite3
 import numpy as np
@@ -17,6 +18,7 @@ from maps.States import ScenarioDef
 from equilibrium.game_tree import Actions
 from visualizer.visualizer import plot_traffic_regions
 from rg_visualizer import UniWeberAnalytics
+
 
 WAIT_ACTIONS = ['yield-to-merging','wait_for_lead_to_cross','wait-for-oncoming','decelerate-to-stop','wait-on-red','wait-for-pedestrian']
 
@@ -311,23 +313,26 @@ class TestScenario():
         
     def test_single_trajectory_error(self):
         current_file_id = 770
+        maneuver = 'follow_lead_into_intersection'
+        vehicle = VehicleState()
+        vehicle.set_id(155)
+        vehicle.set_current_time(150.15)
         initialize_db = False
         freq = 0.5
-        scene_def = ScenarioDef(181, None, str(current_file_id), initialize_db, 203.203, freq)
+        scene_def = ScenarioDef(vehicle.id, None, str(current_file_id), initialize_db, vehicle.current_time, freq)
         ag_obj = scene_def.agent
-        ag_obj.lead_veh_velocity_target = 0.07
-        agent_waypoints = [(538838.7039375074, 4814004.334373969), (538834.405103215, 4814006.923027706), (538828.5697667882, 4814008.828035655), (538824.5363076635, 4814009.19683337), (538816.9572847188, 4814006.988533976), (538813.4324633703, 4814004.969167935), (538806.391341688, 4814001.301922662), (538802.668606025, 4813999.522904014), (538797.051654872, 4813996.777510707), (538788, 4813992)]
-        agent_waypoint_segments = ['exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s', 'exec-turn_s']
-        direction = 'L_S_W'
+        #ag_obj.lead_veh_velocity_target = 6
+        lead_vehicle = VehicleState()
+        lead_vehicle.set_id(99)
+        lead_vehicle.set_current_time(150.15)
         initialize_db = False
         freq = 0.5
-        scene_def = SyntheticScenarioDef(-2706, 8, agent_waypoints, agent_waypoint_segments, direction, str(current_file_id), initialize_db, 203.203, freq)
+        scene_def = ScenarioDef(lead_vehicle.id, None, str(current_file_id), initialize_db, lead_vehicle.current_time, freq)
         lead_ag_obj = scene_def.agent
-        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='follow_lead_into_intersection', ag_obj=ag_obj, lead_ag_obj=lead_ag_obj)
-        # constr.set_limit_constraints(max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=6,max_jerk_lims=3)
-        constr.set_limit_constraints(max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=8,max_jerk_lims=5)
-        # constr.set_limit_constraints()
-        agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver='follow_lead_into_intersection', mode=None, horizon=6)
+        print(f"Follower speed: {ag_obj.velocity}; Leader speed: {lead_ag_obj.velocity}")
+        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver=maneuver, ag_obj=ag_obj, lead_ag_obj=lead_ag_obj)
+        constr.set_limit_constraints(max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=6,max_jerk_lims=3)
+        agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver=maneuver, mode=None, horizon=6)
         agent_motion.generate_trajectory(True)
         assert hasattr(agent_motion, 'all_trajectories') and len(agent_motion.all_trajectories) > 0
     
