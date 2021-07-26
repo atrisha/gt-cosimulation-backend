@@ -73,6 +73,7 @@ class TrajectoryConstraintsFactory:
             _mindist = min(_min_dist_2_lead)
             _mindist_idx = _min_dist_2_lead.index(_mindist)
             lead_vel = lead_ag_obj.velocity if not hasattr(ag_obj, 'lead_veh_velocity_target') else ag_obj.lead_veh_velocity_target
+            lead_vel = max(1,lead_vel)
             if lead_ag_obj.velocity > 2:
                 ''' lead vehicle is moving forward now'''
                 if _mindist_idx > 0:
