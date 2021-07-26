@@ -165,3 +165,18 @@ def plot_heatmap(plt,fig,axis,data):
     axis.get_xaxis().set_ticks([])
     #fig.set_size_inches(11.03, 3.5)
     plt.colorbar(heatmap)
+
+def has_crossed(pt,origin_pt,line):
+    exit_pos_X = [x[0] for x in line.coords]
+    exit_pos_Y = [x[1] for x in line.coords]
+    m = (exit_pos_Y[1] - exit_pos_Y[0]) / (exit_pos_X[1] - exit_pos_X[0])
+    c = (exit_pos_Y[0] - (m * exit_pos_X[0]))
+    
+    veh_pos_x, veh_pos_y = pt[0],pt[1]
+    #dist_to_exit_boundary = distance_numpy([exit_pos_X[0],exit_pos_Y[0]], [exit_pos_X[1],exit_pos_Y[1]], [veh_pos_x,veh_pos_y])
+    #dist_from_veh_origin_to_exit_boundary = distance_numpy([exit_pos_X[0],exit_pos_Y[0]], [exit_pos_X[1],exit_pos_Y[1]], [veh_orig_x,veh_orig_y])
+    veh_orig_x,veh_orig_y = origin_pt[0], origin_pt[1]
+    res_wrt_origin = veh_orig_y - (m*veh_orig_x) - c
+    res_wrt_point = veh_pos_y - (m*veh_pos_x) - c
+    
+    return True if np.sign(res_wrt_origin) != np.sign(res_wrt_point) else False

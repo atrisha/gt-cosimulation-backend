@@ -358,17 +358,17 @@ class TrajectoryPlanner:
             self.curvature = lambda x: 0
         if False:
             plt.figure()
-            plt.title('path')
+            plt.title('path'+str(k))
             plt.plot([x_corrected(x) for x in plot_indx_x],[y_corrected(x) for x in plot_indx_x])
             v = list(zip([x_corrected(x) for x in plot_indx_x],[y_corrected(x) for x in plot_indx_x]))
             plt.arrow(v[-2][0], v[-2][1],v[-1][0]-v[-2][0] , v[-1][1]-v[-2][1], width=.5)
             plt.axis('equal')
             plt.plot([x[0] for x in self.centerline],[x[1] for x in self.centerline],'x')
-            
+            '''
             plt.figure()
             plt.title('curvature')
             plt.plot(plot_indx_x,[self.curvature(x) for x in plot_indx_x])
-            
+            '''
             plt.show()
         self.indx = indx
         return self.path
@@ -441,7 +441,19 @@ class TrajectoryPlanner:
                 y_corrected = lambda x : self.cs_y(x) - err_y
                 self.x_corrected = x_corrected
                 self.y_corrected = y_corrected
-        
+                '''
+                if not isinstance(self.traj_constr_obj, ProceedTrajectoryConstraints):
+                    plt.figure()
+                    plt.subplot(1, 2, 1)
+                    plt.title('corected')
+                    plt.plot([x for x in time_st],[v_corrected(x) for x in time_st])
+                    
+                    plt.subplot(1, 2, 2)
+                    plt.title('uncorrected')
+                    plt.plot([x for x in time_st],[self.cs_v(x) for x in time_st])
+                    plt.show()
+                 '''        
+                
                 for t in time_st:
                     if t <= horizon:
                         #s = self.t_s_map[t]
@@ -723,10 +735,10 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                     max_jerk = self.cs_j(find_maxima_minima(True, self.cs_j, horizon,1))
                     '''
                     self.cs_t_s = lambda x : scipy.integrate.quad(self.cs_v,0,x)[0]
-                    max_acc = max([self.cs_a(x) for x in np.arange(0,horizon,.5)])
+                    max_acc = max([self.cs_a(x) for x in np.arange(0,horizon,.1)])
                     f_lat_acc_wrt_time = lambda x : (self.cs_v(x)**2)*self.curvature(self.cs_t_s(x)/self.arcl)
-                    max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(0,horizon,.5)])
-                    max_jerk = max([self.cs_j(x) for x in np.arange(0,horizon,.5)])
+                    max_lat_acc = max([f_lat_acc_wrt_time(x) for x in np.arange(0,horizon,.1)])
+                    max_jerk = max([self.cs_j(x) for x in np.arange(0,horizon,.1)])
                     category = self.assign_mode(max_acc,max_lat_acc,max_vel,max_jerk)
                     if category != 'infeasible':
                         entry = {'func':copy.deepcopy(self.cs_v),

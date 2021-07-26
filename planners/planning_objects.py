@@ -4,7 +4,7 @@ Created on Apr 14, 2021
 @author: Atrisha
 '''
 import sqlite3
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints
 import constants
 import numpy as np
@@ -82,14 +82,9 @@ class TrajectoryConstraintsFactory:
                 constr = ProceedTrajectoryConstraints(waypoints=ag_obj.waypoints,waypoint_vel_sampling_range=vel_pts_proc)
             else:
                 ''' lead vehicle is slow, better to wait '''
-                _wp_till_lead = ag_obj.waypoints[:_mindist_idx]
-                _dist2lead = sum([math.hypot(xy2[0][0]-xy2[1][0], xy2[0][1]-xy2[1][1]) for xy2 in zip(_wp_till_lead[:-1],_wp_till_lead[1:])])
-                try:
-                    _stoptime_estimate = max(utils.solve_quadratic(-0.5, ag_obj.velocity, -(_dist2lead-2.5)))
-                except ValueError:
-                    _stoptime_estimate = 4
-                stop_horizon_dist_sampling_range = (_dist2lead-10,_dist2lead)
-                stop_horizon_time_sampling_range = (_stoptime_estimate-3,_stoptime_estimate+3)
+                _dist2lead = LineString(ag_obj.waypoints).project(Point(lead_ag_obj.x,lead_ag_obj.y)) - LineString(ag_obj.waypoints).project(Point(ag_obj.x,ag_obj.y))
+                stop_horizon_dist_sampling_range = (min(_dist2lead-10,0),max(_dist2lead,0.1))
+                stop_horizon_time_sampling_range = (max(0,(0.1*ag_obj.velocity - 0.03)), max(5,(3*ag_obj.velocity-4.5)))
                 constr = WaitTrajectoryConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints,stop_horizon_dist_sampling_range=stop_horizon_dist_sampling_range,stop_horizon_time_sampling_range=stop_horizon_time_sampling_range)
         elif maneuver == 'cut-in':
             _mididx = int(len(ag_obj.waypoints)//2)

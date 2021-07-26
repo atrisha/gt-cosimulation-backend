@@ -199,6 +199,7 @@ class UniWeberAnalytics:
         
         fig, ax = plt.subplots()
         lines = [plt.plot([], [],lw=2)[0] for _ in range(len(trajs_list))] 
+        rounds = [plt.plot([], [],'o')[0] for _ in range(len(trajs_list))] 
         #plt.xlim(538780, 538890)
         #plt.ylim(4813970, 4814055)
         
@@ -206,15 +207,16 @@ class UniWeberAnalytics:
         if im_type is None:
             img = plt.imread("D:\\behavior modeling\\background.jpg")
             ax.imshow(img, extent=[538780, 538890, 4813970, 4814055])
+            #ax.imshow(img, extent=[538775, 538885, 4813975, 4814060])
         else:
             img = plt.imread("D:\\behavior modeling\\assorted_figures\\park_pullout_background.png")
             ax.imshow(img, extent = ParkingPullout.img_extent)
         
         
         # initialization function: plot the background of each frame
-        patches = lines
+        patches = lines + rounds
         def init():
-            for ln in lines:
+            for ln in patches:
                 ln.set_data([], [])
             
             return patches
@@ -227,7 +229,11 @@ class UniWeberAnalytics:
                     ln.set_data([], [])
                 else:
                     ln.set_data([x[0] for x in trajs_list[idx][:i]], [x[1] for x in trajs_list[idx][:i]])
-            
+            for idx,ln in enumerate(rounds):
+                if i > len(trajs_list[idx]):
+                    ln.set_data([], [])
+                else:
+                    ln.set_data([trajs_list[idx][i][0]], [trajs_list[idx][i][1]])
             return patches
         
         # call the animator.  blit=True means only re-draw the parts that have changed.

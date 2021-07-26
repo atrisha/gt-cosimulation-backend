@@ -310,23 +310,32 @@ class TestScenario():
         assert hasattr(agent1_motion, 'all_trajectories') and len(agent1_motion.all_trajectories) > 0     
         
     def test_single_trajectory_error(self):
-        occluding_vehicle_initial_speed = 0
-        agent_waypoints = [(538847.5359664214, 4814014.820115761), (538851.5401863018, 4814015.2509448035), (538855.529840807, 4814015.727722709), (538860.4183410509, 4814016.743555052), (538864.192742443, 4814018.135840097), (538870.4736586215, 4814021.245888905), (538875.6865970495, 4814024.0246078605), (538879.3477370649, 4814026.086745861), (538883.1019135603, 4814028.300378264), (538888.8374708086, 4814031.810163991)]
-        agent_waypoint_segments = ['exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n']
+        current_file_id = 775
+        # For vehicle 133
         initialize_db = False
         freq = 0.5
-        scene_def = SyntheticScenarioDef(-1694, occluding_vehicle_initial_speed, agent_waypoints, agent_waypoint_segments, 'L_N_E', 769, initialize_db, 0, freq)
+        scene_def = ScenarioDef(133, None, str(current_file_id), initialize_db, 135.135, freq)
         ag_obj = scene_def.agent
-        maneuver = 'wait_for_lead_to_cross'
-        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver=maneuver, ag_obj=ag_obj, lead_ag_obj=None)
-        constr.set_limit_constraints()
-        agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver=maneuver, mode=None, horizon=6)
-        agent1_motion.generate_trajectory(True)
-        trajectories = agent1_motion.all_trajectories
-        f=1
+        # ag_obj.velocity = 2.1
+        # For lead vehicle -3757
+        agent_waypoints = [(538812.6400325372, 4814001.07297579), (538816.252471106, 4814002.80558091), (538819.8916707381, 4814004.500486911), (538824.9698058811, 4814007.71215478), (538827.7383582602, 4814010.763116547), (538829.6373018258, 4814014.368554809), (538829.7862531753, 4814023.130215343), (538828.9615046196, 4814027.287637429), (538828.2456223872, 4814031.514680662), (538826.6787400843, 4814038.443395544)]
+        agent_waypoint_segments = ['ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1', 'ln_w_1']
+        direction = 'L_W_N'
+        initialize_db = False
+        freq = 0.5
+        scene_def = SyntheticScenarioDef(-3757, 0.1, agent_waypoints, agent_waypoint_segments, direction, str(current_file_id), initialize_db, 135.135, freq)
+        lead_ag_obj = scene_def.agent
+        # If this value is above 2.0 trajectory generation works, if it is below 2, trajectory generation fails.
+        lead_ag_obj.velocity = 2.0
+        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='follow_lead', ag_obj=ag_obj, lead_ag_obj=lead_ag_obj)
+        constr.set_limit_constraints(max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=6,max_jerk_lims=3)
+        # constr.set_limit_constraints()
+        agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver='follow_lead', mode=None, horizon=6)
+        agent_motion.generate_trajectory(True)
+        assert hasattr(agent_motion, 'all_trajectories') and len(agent_motion.all_trajectories) > 0
 
 
 if __name__ == '__main__':
     #unittest.main()
     test = TestScenario()
-    test.test_scene_769_1()
+    test.test_single_trajectory_error()

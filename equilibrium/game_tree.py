@@ -70,9 +70,12 @@ class AssignDistRanges:
     
     def assign_distranges(self,node,last_decision_level,model):
         if node.level == last_decision_level:
-            for c in node.children:
-                self.assign_distranges(c,last_decision_level,model)
-                
+            try:
+                for c in node.children:
+                    self.assign_distranges(c,last_decision_level,model)
+            except TypeError:
+                f=1
+                raise
             self.predict_dist_ranges(node, model, last_decision_level)
         else:
             if not node.is_leaf: 
@@ -902,6 +905,13 @@ class GameTree:
                         _children_info = list(itertools.product(level_nodes_6s['agent_1'][n4s[0][-1]], level_nodes_6s['agent_2'][n4s[1][-1]]))
                         n6 = []
                         for _c in _children_info:
+                            if(n4s[1][-1] == 47 and n4s[0][-1] == 70):
+                                f=1
+                            if _c[0][7] != 4 or _c[1][7] != 4:
+                                ''' The init time of the child has to match the level we are in - to avoid jumps in the trajectories '''
+                                if not (_c[0][8] == n4s[0][-1] and _c[1][8] == n4s[1][-1]):
+                                    ''' But if the node is part of the same trajectory, then it is okay.'''
+                                    continue
                             vtf = TrajectoryFragment(time_range=(int(2*int(1/self.freq)),self.horizon),traj_id=_c[0][-2],manv=_c[0][0],manv_mode=_c[0][1],init_time=_c[0][-3],horizon=self.horizon)
                             ptf = TrajectoryFragment(time_range=(int(2*int(1/self.freq)),self.horizon),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3],horizon=self.horizon)
                             vtf.load(self.file_id,v_tcache_4_6)
@@ -919,7 +929,6 @@ class GameTree:
                             n6.append(nd)
                         for _n in n6:
                             _n.children = None
-                        
                         level_nodes_4s[n4s].children += n6
                     if len(level_nodes_4s[n4s].children) == 0:
                         level_nodes_4s[n4s].children = None
@@ -1053,7 +1062,7 @@ class GameTree:
                 lattice_dist_step_ag2 = 5
                 
             for idx1,veh_row in enumerate(veh_res):
-                parent_traj_id = veh_row[-1] if veh_row[-1] is not None else veh_row[-2]
+                parent_traj_id = veh_row[-1] if veh_row[-1] is not None and veh_row[-3] == int(2*int(1/self.freq)) else veh_row[-2]
                 if parent_traj_id not in veh_lattice_states:
                         veh_lattice_states[parent_traj_id] = []
                         
@@ -1067,7 +1076,7 @@ class GameTree:
                     veh_lattice_states[parent_traj_id].append(tuple([x if _i !=3 else math.sqrt(x) for _i,x in enumerate(veh_row)]))
                     
             for idx2,peds_row in enumerate(peds_res):
-                parent_traj_id = peds_row[-1] if peds_row[-1] is not None else peds_row[-2]
+                parent_traj_id = peds_row[-1] if peds_row[-1] is not None and peds_row[-3] == int(2*int(1/self.freq)) else peds_row[-2]
                 if parent_traj_id not in peds_lattice_states:
                         peds_lattice_states[parent_traj_id] = []
                 if peds_row[-3] == int(2*int(1/self.freq)):
