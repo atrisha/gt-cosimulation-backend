@@ -1180,6 +1180,7 @@ class GameTree:
         return all_level_nodes
     
 def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
+    rg_constants.SCENE_TYPE = ('REAL',None)
     scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts,freq=freq)
     maneuver_constraints = scene_def.setup_trajectory_constraints()
     tree_builder = TreeBuilder(freq,initialize_db)
@@ -1790,10 +1791,10 @@ def main():
 if __name__ == '__main__':
     #rg_constants.SCENE_TYPE = ('synthetic','test')
     #rg_constants.CURRENT_RG_FILE_ID = '769_44_49_34,1341'
-    #run_one_scenario(dbfile_id='769', agent1_id=44, agent2_id=49, start_ts=24.1341, initialize_db=True, freq=0.5)
+    run_one_scenario(dbfile_id='770', agent1_id=186, agent2_id=159, start_ts=178.511667, initialize_db=True, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
     #plot_all_results()
-    run_all_scenarios()
+    #run_all_scenarios()
     #results_all_scenarios()
     f=1
     

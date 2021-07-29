@@ -312,28 +312,18 @@ class TestScenario():
         assert hasattr(agent1_motion, 'all_trajectories') and len(agent1_motion.all_trajectories) > 0     
         
     def test_single_trajectory_error(self):
-        current_file_id = 769
-        agent_waypoints = [(538854.6960689264, 4814025.62422318), (538849.3402796004, 4814022.915781439), (538841.2893745557, 4814018.899897484), (538834.0887522803, 4814015.387119595), (538828.6858507808, 4814012.748135943), (538818.7897308728, 4814007.941596232), (538813.4056286556, 4814005.173707512), (538803.7262965651, 4814000.218587252), (538798.0053486059, 4813997.342552481), (538790.1888177714, 4813993.395973658)]
-        agent_waypoint_segments =  ['ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2', 'ln_e_2']
-        direction = 'L_E_W'
+        current_file_id = 780
         initialize_db = False
         freq = 0.5
-        scene_def = SyntheticScenarioDef(-1038, 0.20912771439663932, agent_waypoints, agent_waypoint_segments, direction, str(current_file_id), initialize_db, 63.063, freq)
-        lead_ag_obj = scene_def.agent
-        print(f"LEAD AGENT VELOCITY: {lead_ag_obj.velocity}")
-        initialize_db = False
-        freq = 0.5
-        scene_def = ScenarioDef(75, None, str(current_file_id), initialize_db, 63.063, freq)
+        scene_def = ScenarioDef(96, None, str(current_file_id), initialize_db, 85.085, freq)
         ag_obj = scene_def.agent
-        ag_obj.velocity = lead_ag_obj.velocity
-        print(f"AGENT VELOCITY: {ag_obj.velocity}")
-        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='follow_lead', ag_obj=ag_obj, lead_ag_obj=lead_ag_obj)
+        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='track_speed', ag_obj=ag_obj, lead_ag_obj=None)
         constr.set_limit_constraints(max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=6,max_jerk_lims=3)
-        agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver='follow_lead', mode=None, horizon=6)
+        agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver='track_speed', mode=None, horizon=6)
         agent_motion.generate_trajectory(True)
         assert hasattr(agent_motion, 'all_trajectories') and len(agent_motion.all_trajectories) > 0
-
-    
+                            
+                
   
 
     

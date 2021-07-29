@@ -180,3 +180,12 @@ def has_crossed(pt,origin_pt,line):
     res_wrt_point = veh_pos_y - (m*veh_pos_x) - c
     
     return True if np.sign(res_wrt_origin) != np.sign(res_wrt_point) else False
+
+
+def redistribute_vertices(geom, distance):
+    num_vert = int(round(geom.length / distance))
+    if num_vert == 0:
+        num_vert = 1
+    return LineString(
+        [geom.interpolate(float(n) / num_vert, normalized=True)
+         for n in range(num_vert + 1)])

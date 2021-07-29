@@ -21,6 +21,8 @@ from collections import defaultdict
 import warnings
 import constants
 import all_utils.utils
+import code_utils.utils as rg_utils
+from shapely.geometry import multipoint, point, linestring
 
 
 class TrajectoryConstraints:
@@ -212,6 +214,11 @@ class TrajectoryPlanner:
         if maneuver not in WAIT_MANEUVERS and isinstance(traj_constr_obj, WaitTrajectoryConstraints):
             raise("Proceed maneuvers should be passed ProceedTrajectoryConstraints object")
         '''
+        if len(traj_constr_obj.waypoints) > 3:
+            _simplified_waypoints = list(linestring.LineString(traj_constr_obj.waypoints).simplify(tolerance=2).coords)
+            removal_indxs = [idx for idx,x in enumerate(traj_constr_obj.waypoints) if x not in _simplified_waypoints]
+            traj_constr_obj.waypoint_vel_sampling_range = [x for idx,x in enumerate(traj_constr_obj.waypoint_vel_sampling_range) if idx not in removal_indxs]
+            traj_constr_obj.waypoints = _simplified_waypoints
         self.traj_constr_obj = traj_constr_obj
         self.v0 = traj_constr_obj.init_vel
         self.vel_pts = None
@@ -626,6 +633,8 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                 _addl_velpts = [this_vel_targets[-1]]*len(_addl_timepts)
                 time_pts += _addl_timepts
                 this_vel_targets += _addl_velpts
+            _aug = rg_utils.redistribute_vertices(linestring.LineString(list(zip(time_pts,this_vel_targets))), 1)
+            time_pts,this_vel_targets = [x[0] for x in _aug.coords],[x[1] for x in _aug.coords]
             self.cs_v = UnivariateSpline(time_pts,this_vel_targets,k=ord)
             #plt.plot(time_st,[self.cs_v(z) for z in time_st])
             #plt.plot(time_pts,this_vel_targets,'x')
