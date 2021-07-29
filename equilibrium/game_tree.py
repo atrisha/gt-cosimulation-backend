@@ -1224,10 +1224,10 @@ def animate_one_scenario(gt_file_id):
 
 
 def run_all_scenarios():
-    freq = 0.5
+    freq = 1
     initialize_db = True
     initialize_files = False
-    rerun_failed_files = False
+    rerun_failed_files = True
     failed_files = []
     scene_type = sys.argv[2]
     rg_constants.SCENE_TYPE = ('REAL',None)
@@ -1792,8 +1792,8 @@ if __name__ == '__main__':
     #rg_constants.CURRENT_RG_FILE_ID = '769_44_49_34,1341'
     #run_one_scenario(dbfile_id='769', agent1_id=44, agent2_id=49, start_ts=24.1341, initialize_db=True, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
-    plot_all_results()
-    #run_all_scenarios()
+    #plot_all_results()
+    run_all_scenarios()
     #results_all_scenarios()
     f=1
     

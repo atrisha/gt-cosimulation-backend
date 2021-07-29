@@ -80,7 +80,8 @@ class TrajectoryConstraintsFactory:
                     raise UnsupportedScenarioException("Lead vehicle velocity is set too low")
             lead_vel = lead_ag_obj.velocity if not hasattr(ag_obj, 'lead_veh_velocity_target') else ag_obj.lead_veh_velocity_target
             lead_vel = max(1,lead_vel)
-            if lead_ag_obj.velocity > 2:
+            _dist2lead = LineString(ag_obj.waypoints).project(Point(lead_ag_obj.x,lead_ag_obj.y)) - LineString(ag_obj.waypoints).project(Point(ag_obj.x,ag_obj.y))
+            if lead_ag_obj.velocity > 2 or _dist2lead > 30:
                 ''' lead vehicle is moving forward now'''
                 if _mindist_idx > 0:
                     vel_pts_proc = [(ag_obj.velocity,)] + [(None,) if i != _mindist_idx else (lead_vel-1,lead_vel+1) for i in np.arange(1,len(ag_obj.waypoints)-1)] + [(lead_vel-1,lead_vel+1)]
@@ -89,8 +90,8 @@ class TrajectoryConstraintsFactory:
                 constr = ProceedTrajectoryConstraints(waypoints=ag_obj.waypoints,waypoint_vel_sampling_range=vel_pts_proc)
             else:
                 ''' lead vehicle is slow, better to wait '''
-                _dist2lead = LineString(ag_obj.waypoints).project(Point(lead_ag_obj.x,lead_ag_obj.y)) - LineString(ag_obj.waypoints).project(Point(ag_obj.x,ag_obj.y))
-                stop_horizon_dist_sampling_range = (max(_dist2lead-10,0),max(_dist2lead,0.1))
+                
+                stop_horizon_dist_sampling_range = (max(ag_obj.velocity*0.1 - 0.005,0),max(_dist2lead,0.1))
                 stop_horizon_time_sampling_range = (max(0,(0.1*ag_obj.velocity - 0.03)), max(5,(3*ag_obj.velocity-4.5)))
                 constr = WaitTrajectoryConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints,stop_horizon_dist_sampling_range=stop_horizon_dist_sampling_range,stop_horizon_time_sampling_range=stop_horizon_time_sampling_range)
         elif maneuver == 'cut-in':
