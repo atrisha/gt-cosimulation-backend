@@ -214,7 +214,7 @@ class TrajectoryPlanner:
         if maneuver not in WAIT_MANEUVERS and isinstance(traj_constr_obj, WaitTrajectoryConstraints):
             raise("Proceed maneuvers should be passed ProceedTrajectoryConstraints object")
         '''
-        if len(traj_constr_obj.waypoints) > 3:
+        if len(traj_constr_obj.waypoints) > 3 and isinstance(traj_constr_obj, ProceedTrajectoryConstraints):
             _simplified_waypoints = list(linestring.LineString(traj_constr_obj.waypoints).simplify(tolerance=2).coords)
             removal_indxs = [idx for idx,x in enumerate(traj_constr_obj.waypoints) if x not in _simplified_waypoints]
             traj_constr_obj.waypoint_vel_sampling_range = [x for idx,x in enumerate(traj_constr_obj.waypoint_vel_sampling_range) if idx not in removal_indxs]
