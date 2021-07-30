@@ -541,6 +541,128 @@ class RobustResponse(Equilibria):
 
 class Ql1Model(Equilibria):
     
+    def calc_response_ql0ql0(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        
+        gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
+        gamma_matrix.reverse()
+        ''' agent_1=0 agent_2 = 1'''
+        node.ql0ql0_response = {'response':{'agent_1' : np.empty(shape= (gamma_matrix[0].shape[0],1), dtype=object),
+                                'agent_2' : np.empty(shape= (gamma_matrix[1].shape[1],1), dtype=object)},
+                             'distribution':{'agent_1' : None,
+                                'agent_2' : None},
+                             'all_responses':{'agent_1' : None,
+                                'agent_2' : None}}
+        agent1_distr,agent2_distr = dict(), dict()
+            
+        
+        #for i in np.arange(node.ql1_response['agent_2'].shape[0]):
+        #    ''' agent_1 private tolerance type is i '''
+        
+        u = Utilities()
+        ag_2_resp = []
+        for ag2_tf in ped_acts:
+            ag_2_resp_per_ag1_act = []
+            for ag1_tf in veh_acts:
+                dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
+                safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+                step_util = u.combine_utils(u.progress_payoff_dist(ag2_tf.length, 'agent_2'), safe_payoff_for_dist, gamma_matrix[1])
+                if node.level == last_decision_level:
+                    ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd_ag2
+                    ext_prog_utils = ag2_tf._next_node.mean_progress_util_contd_ag2 if ag2_tf._next_node.mean_progress_util_contd_ag2 is not None else u.progress_payoff_dist(ag2_tf.length, 'agent_2')
+                    cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[1])
+                    _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
+                    cont_util = step_util
+                else:
+                    if len(ag2_tf._next_node.children) == 0:
+                        continue
+                    else:
+                        cont_util = ag2_tf._next_node.ql0ql0_response['response']['agent_2']['utils']
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
+                _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
+                _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+                if ag1_tf._next_node is not None:
+                    if hasattr(ag1_tf._next_node, 'util_info'):
+                        if 'ql1' not in ag1_tf._next_node.util_info:
+                            ag1_tf._next_node.util_info['ql1'] = _util_entry_matrix
+                    else:
+                        ag1_tf._next_node.util_info = dict()
+                        ag1_tf._next_node.util_info['ql1'] = _util_entry_matrix
+                
+                manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag2_tf.manv)
+                traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag2_tf.length)
+                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
+                ag_2_resp_per_ag1_act.append(_resp_entry)
+            resp_vect = np.array(ag_2_resp_per_ag1_act)
+            resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+            ag_2_resp.append(np.copy(resp_vect_sorted[0,:,:]))
+            if hasattr(ag2_tf._next_node, 'util_info'):
+                if 'qlk' not in ag2_tf._next_node.util_info:
+                    ag2_tf._next_node.util_info['qlk'] = dict()
+                ag2_tf._next_node.util_info['qlk']['agent_2'] = resp_vect_sorted[0,:,:]['utils']
+            else:
+                ag2_tf._next_node.util_info = dict()
+                ag2_tf._next_node.util_info['qlk'] = dict()
+                ag2_tf._next_node.util_info['qlk']['agent_2'] = resp_vect_sorted[0,:,:]['utils']
+                 
+        resp_vect = np.array(ag_2_resp)
+        resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+        ''' agent 2 is the ql0 agent, therefore this is its response based on maxmax behavior'''
+        node.ql0ql0_response['response']['agent_2'] =  np.copy(resp_vect_sorted[0,:,:])
+        
+        
+        ag_1_resp = []
+        for ag2_tf in ped_acts:
+            ag_1_resp_per_ag2_act = []
+            for ag1_tf in veh_acts:
+                dist_gap = u.calc_dist_gap(veh_traj = ag1_tf.loaded_traj_frag, ped_traj = ag2_tf.loaded_traj_frag)
+                safe_payoff_for_dist = u.calc_safe_payoff(dist_gap)
+                step_util = u.combine_utils(u.progress_payoff_dist(ag1_tf.length, 'agent_1'), safe_payoff_for_dist, gamma_matrix[0])
+                if node.level == last_decision_level:
+                    ext_safe_utils = ag1_tf._next_node.mean_safe_util_contd_ag1
+                    ext_prog_utils = ag1_tf._next_node.mean_progress_util_contd_ag1 if ag1_tf._next_node.mean_progress_util_contd_ag1 is not None else u.progress_payoff_dist(ag1_tf.length, 'agent_1')
+                    cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[0])
+                    _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
+                    safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
+                    cont_util = step_util
+                else:
+                    if len(ag1_tf._next_node.children) == 0:
+                        continue
+                    else:
+                        cont_util = ag1_tf._next_node.ql0ql0_response['response']['agent_1']['utils']
+                        safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=safe_payoff_for_dist)
+                _resp_entry = np.empty(shape= gamma_matrix[1].shape, dtype=np.record)
+                _util_entry_matrix = np.mean(np.array([ cont_util, step_util ]), axis=0 )
+                if ag1_tf._next_node is not None:
+                    if hasattr(ag1_tf._next_node, 'util_info'):
+                        if 'ql1' not in ag1_tf._next_node.util_info:
+                            ag1_tf._next_node.util_info['ql1'] = _util_entry_matrix
+                    else:
+                        ag1_tf._next_node.util_info = dict()
+                        ag1_tf._next_node.util_info['ql1'] = _util_entry_matrix
+                
+                manv_str_arr = np.full(shape = gamma_matrix[1].shape, fill_value=ag1_tf.manv)
+                traj_l_arr = np.full(shape = gamma_matrix[1].shape, fill_value = ag1_tf.length)
+                _resp_entry = np.rec.fromarrays((manv_str_arr, traj_l_arr, _util_entry_matrix, safe_util), names=('manv', 'traj_l', 'utils', 'safe_utils'), dtype=[('manv', object), ('traj_l', float), ('utils', float), ('safe_utils', float)])
+                ag_1_resp_per_ag2_act.append(_resp_entry)
+            resp_vect = np.array(ag_1_resp_per_ag2_act)
+            resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+            ag_1_resp.append(np.copy(resp_vect_sorted[0,:,:]))
+            if hasattr(ag1_tf._next_node, 'util_info'):
+                if 'qlk' not in ag1_tf._next_node.util_info:
+                    ag1_tf._next_node.util_info['qlk'] = dict()
+                ag1_tf._next_node.util_info['qlk']['agent_1'] = resp_vect_sorted[0,:,:]['utils']
+            else:
+                ag1_tf._next_node.util_info = dict()
+                ag1_tf._next_node.util_info['qlk'] = dict()
+                ag1_tf._next_node.util_info['qlk']['agent_1'] = resp_vect_sorted[0,:,:]['utils']
+                 
+        resp_vect = np.array(ag_1_resp)
+        resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+        ''' agent 1 is the ql0 agent too in this, therefore this is its response based on maxmax behavior'''
+        node.ql0ql0_response['response']['agent_1'] =  np.copy(resp_vect_sorted[0,:,:])
+        f=1
+    
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
         
         precision_parm = 1
@@ -573,7 +695,7 @@ class Ql1Model(Equilibria):
                 if node.level == last_decision_level:
                     ext_safe_utils = ag2_tf._next_node.mean_safe_util_contd_ag2
                     ext_prog_utils = ag2_tf._next_node.mean_progress_util_contd_ag2 if ag2_tf._next_node.mean_progress_util_contd_ag2 is not None else u.progress_payoff_dist(ag2_tf.length, 'agent_2')
-                    cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[0])
+                    cont_util = u.combine_utils(ext_prog_utils, ext_safe_utils, gamma_matrix[1])
                     _safe_m = np.mean([ext_safe_utils, safe_payoff_for_dist])
                     safe_util = np.full(shape=gamma_matrix[1].shape, fill_value=_safe_m)
                     cont_util = step_util

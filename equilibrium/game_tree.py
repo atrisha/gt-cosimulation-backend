@@ -136,18 +136,22 @@ class Actions:
         trajs = dict()
         if manv in ['wait']:
             if ag == 'agent_1':
-                stop_horizon_dist_sampling_range = (1,5)
-                stop_horizon_time_sampling_range = (1,4)
+                #stop_horizon_dist_sampling_range = (1,5)
+                #stop_horizon_time_sampling_range = (1,4)
+                stop_horizon_dist_sampling_range = (max(init_veh_vel*0.1 - 0.005,0),max(10,init_veh_vel*6 - 18))
+                stop_horizon_time_sampling_range = (max(0,(0.1*init_veh_vel - 0.03)), max(6,(3*init_veh_vel-4.5)))
             else:
                 if rg_constants.SCENE_TYPE[0] == 'REAL':
                     stop_horizon_dist_sampling_range = (self.maneuver_constraints[ag]['maneuvers']['wait'].stop_horizon_dist_sampling_range[0]-parent_trajectory_arcl,self.maneuver_constraints[ag]['maneuvers']['wait'].stop_horizon_dist_sampling_range[1]-parent_trajectory_arcl)
                     stop_horizon_time_sampling_range = (1,4)
+                    stop_horizon_time_sampling_range = (max(0,(0.1*init_veh_vel - 0.03)), max(5,(3*init_veh_vel-4.5)))
                 elif rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['test','intersection_clearance']:
                     if self.maneuver_constraints[ag]['agent_state'].id == 2:
                         stop_horizon_dist_sampling_range = (IntersectionClearanceMapInfo.st1_on_intersection_distance[0]-5,IntersectionClearanceMapInfo.st1_on_intersection_distance[0]) 
                     else:
                         stop_horizon_dist_sampling_range = (IntersectionClearanceMapInfo.st2_on_intersection_distance[0]-5,IntersectionClearanceMapInfo.st2_on_intersection_distance[0])
                     stop_horizon_time_sampling_range = (1,4)
+                    stop_horizon_time_sampling_range = (max(0,(0.1*init_veh_vel - 0.03)), max(5,(3*init_veh_vel-4.5)))
                 else:
                     stop_horizon_dist_sampling_range = (10,100)
                     stop_horizon_time_sampling_range = (1,10)
@@ -1407,7 +1411,7 @@ def plot_all_results():
     line_count = 0
     resultfiles = [f for f in listdir(rg_constants.RESULTS_FILES) if isfile(join(rg_constants.RESULTS_FILES, f))]
     residual_freq_ct = {'ag1_auto_resp':OrderedDict(), 'ag1_robust_resp':OrderedDict(), 'ag1_spe':OrderedDict(), 'qlk': OrderedDict()}
-    scene_type = 'rt'
+    scene_type = 'lt'
     for resfile_name in resultfiles:
         this_scene_type = resfile_name.split('_')[1]
         if scene_type != this_scene_type:
@@ -1791,9 +1795,9 @@ def main():
 if __name__ == '__main__':
     #rg_constants.SCENE_TYPE = ('synthetic','test')
     #rg_constants.CURRENT_RG_FILE_ID = '769_44_49_34,1341'
-    run_one_scenario(dbfile_id='770', agent1_id=186, agent2_id=159, start_ts=178.511667, initialize_db=True, freq=0.5)
+    #run_one_scenario(dbfile_id='770', agent1_id=186, agent2_id=159, start_ts=178.511667, initialize_db=True, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
-    #plot_all_results()
+    plot_all_results()
     #run_all_scenarios()
     #results_all_scenarios()
     f=1

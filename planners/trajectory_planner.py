@@ -214,15 +214,17 @@ class TrajectoryPlanner:
         if maneuver not in WAIT_MANEUVERS and isinstance(traj_constr_obj, WaitTrajectoryConstraints):
             raise("Proceed maneuvers should be passed ProceedTrajectoryConstraints object")
         '''
+        self.centerline = traj_constr_obj.waypoints 
+        if isinstance(traj_constr_obj, ProceedTrajectoryConstraints):
+            self.waypoint_vel_sampling_range = traj_constr_obj.waypoint_vel_sampling_range
         if len(traj_constr_obj.waypoints) > 3 and isinstance(traj_constr_obj, ProceedTrajectoryConstraints):
             _simplified_waypoints = list(linestring.LineString(traj_constr_obj.waypoints).simplify(tolerance=2).coords)
             removal_indxs = [idx for idx,x in enumerate(traj_constr_obj.waypoints) if x not in _simplified_waypoints]
-            traj_constr_obj.waypoint_vel_sampling_range = [x for idx,x in enumerate(traj_constr_obj.waypoint_vel_sampling_range) if idx not in removal_indxs]
-            traj_constr_obj.waypoints = _simplified_waypoints
+            self.waypoint_vel_sampling_range = [x for idx,x in enumerate(traj_constr_obj.waypoint_vel_sampling_range) if idx not in removal_indxs]
+            self.centerline = _simplified_waypoints
         self.traj_constr_obj = traj_constr_obj
         self.v0 = traj_constr_obj.init_vel
         self.vel_pts = None
-        self.centerline = traj_constr_obj.waypoints 
         self.maneuver = maneuver
         self.mode = mode
         self.horizon = horizon
@@ -388,13 +390,13 @@ class TrajectoryPlanner:
             traj = []
             all_trajs = {'aggressive':[],'normal':[]}
             for tx in np.arange(0,self.horizon+0.1,.1):
-                traj.append((tx,self.traj_constr_obj.waypoints[0][0],self.traj_constr_obj.waypoints[0][1],0,0,0,0,yaw,self.parent_trajectory_arcl))
+                traj.append((tx,self.centerline[0][0],self.centerline[0][1],0,0,0,0,yaw,self.parent_trajectory_arcl))
             all_trajs['aggressive'].append(list(traj))
             all_trajs['normal'].append(list(traj))
             self.all_trajectories = all_trajs
             return all_trajs
         if isinstance(self.traj_constr_obj, ProceedTrajectoryConstraints):
-            self.build_velocity_lattice(self.traj_constr_obj.waypoint_vel_sampling_range)
+            self.build_velocity_lattice(self.waypoint_vel_sampling_range)
         if isinstance(self.traj_constr_obj, ProceedTrajectoryConstraints):
             self.generate_proceed_velocity_profiles()
         else:
@@ -617,8 +619,11 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
             try:        
                 self.cs_t_s = CubicSpline(time_pts,s_pts)
             except ValueError:
-                f=1
-                raise
+                if max(time_pts) == np.inf:
+                    ''' The velocity is zero so it cannot proceed any further'''
+                    continue
+                else:
+                    raise
             
             if time_pts[-1] > 8:
                 brk = 1
