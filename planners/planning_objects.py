@@ -5,7 +5,7 @@ Created on Apr 14, 2021
 '''
 import sqlite3
 from shapely.geometry import LineString, Point
-from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints
+from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints, EmergencyBrakingConstraints
 from equilibrium.gametree_objects import UnsupportedScenarioException
 import constants
 import numpy as np
@@ -100,6 +100,9 @@ class TrajectoryConstraintsFactory:
             ag_obj.waypoints = ag_obj.waypoints[:_mididx] + _newpath
             vel_pts_proc = [(ag_obj.velocity,)] + [(None,) if i != len(np.arange(1,len(ag_obj.waypoints)-1))//2 else rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[i], ag_obj.direction, ag_obj) for i in np.arange(1,len(ag_obj.waypoints)-1)] + [rg_utils.get_reasonable_velocities(ag_obj.waypoint_segments[-1], ag_obj.direction, ag_obj)]
             constr = ProceedTrajectoryConstraints(waypoints=ag_obj.waypoints,waypoint_vel_sampling_range=vel_pts_proc)
+        elif maneuver == 'emergency_braking':
+            constr = EmergencyBrakingConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints)
+            constr.ag_obj = ag_obj
         else:   
             raise UnsupportedManeuverException(maneuver)
         constr.lateral_path_sampling = True

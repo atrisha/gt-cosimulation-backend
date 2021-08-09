@@ -13,6 +13,8 @@ from collections import Counter
 from all_utils import utils
 import csv
 import rg_constants
+from shapely.geometry import LineString, Polygon
+from maps.parse_inD import parse_scenes
 
 def right_turn_interaction_scenarios():
     tot = 0
@@ -308,7 +310,48 @@ def pedestrian_interaction_scenarios():
     print('Total', tot)
 
 
-
-
+class inD_Scenarios:
+    
+    def right_turn_scenarios(self):
+        track_meta_map = dict()
+        rt_region = parse_scenes(2)
+        with open('D:\\datasets\\inD-tools\\drone-dataset-tools-master\\drone-dataset-tools-master\\data\\02_tracksMeta.csv', mode='r') as csv_file:
+            csv_reader = csv.DictReader(csv_file)
+            line_count = 0
+            for row in csv_reader:
+                if line_count == 0:
+                    print(f'Column names are {", ".join(row)}')
+                    line_count += 1
+                else:
+                    if row['class'] not in ['pedestrian','bicycle']:
+                        track_meta_map[row['trackId']] = (row['initialFrame'], row['finalFrame']) 
+                line_count += 1
+        with open('D:\\datasets\\inD-tools\\drone-dataset-tools-master\\drone-dataset-tools-master\\data\\02_tracksMeta.csv', mode='r') as csv_file:
+            csv_reader = csv.DictReader(csv_file)
+            line_count = 0
+            for row in csv_reader:
+                if line_count == 0:
+                    print(f'Column names are {", ".join(row)}')
+                    line_count += 1
+                else:
+                    if row['class'] not in ['pedestrian','bicycle']:
+                        track_meta_map[row['trackId']] = (row['initialFrame'], row['finalFrame']) 
+                line_count += 1
+        for k,v in track_meta_map.items():
+            print(k,v)
+        
+        with open('D:\\datasets\\inD-tools\\drone-dataset-tools-master\\drone-dataset-tools-master\\data\\02_tracks.csv', mode='r') as csv_file:
+            csv_reader = csv.DictReader(csv_file)
+            line_count = 0
+            for row in csv_reader:
+                if line_count == 0:
+                    print(f'Column names are {", ".join(row)}')
+                    line_count += 1
+                else:
+                    if row['trackId'] in track_meta_map:
+                        if 
+                line_count += 1
+        
 if __name__ == '__main__':
-    pedestrian_interaction_scenarios()
+    sc = inD_Scenarios()
+    sc.right_turn_scenarios()

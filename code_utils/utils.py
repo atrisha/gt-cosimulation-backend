@@ -13,6 +13,7 @@ import constants
 import rg_constants
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.colors as mcolors
+from shapely.geometry import LineString, Polygon, Point
 
 COLOR = {
     True:  '#6699cc',
@@ -189,3 +190,20 @@ def redistribute_vertices(geom, distance):
     return LineString(
         [geom.interpolate(float(n) / num_vert, normalized=True)
          for n in range(num_vert + 1)])
+    
+def cut_line(line, distance):
+    # Cuts a line in two at a distance from its starting point
+    if distance <= 0.0 or distance >= line.length:
+        return [LineString(line)]
+    coords = list(line.coords)
+    for i, p in enumerate(coords):
+        pd = line.project(Point(p))
+        if pd == distance:
+            return [
+                LineString(coords[:i+1]),
+                LineString(coords[i:])]
+        if pd > distance:
+            cp = line.interpolate(distance)
+            return [
+                LineString(coords[:i] + [(cp.x, cp.y)]),
+                LineString([(cp.x, cp.y)] + coords[i:])]

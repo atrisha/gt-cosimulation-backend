@@ -22,7 +22,7 @@ import warnings
 import constants
 import all_utils.utils
 import code_utils.utils as rg_utils
-from shapely.geometry import multipoint, point, linestring
+from shapely.geometry import multipoint, point, linestring, Point
 
 
 class TrajectoryConstraints:
@@ -69,6 +69,11 @@ class WaitTrajectoryConstraints(TrajectoryConstraints):
         self.stop_horizon_dist_sampling_range = stop_horizon_dist_sampling_range
         self.stop_horizon_time_sampling_range = stop_horizon_time_sampling_range
 
+class EmergencyBrakingConstraints(TrajectoryConstraints):
+    def __init__(self,init_vel,waypoints):
+        TrajectoryConstraints.__init__(self, init_vel,waypoints)
+        self.max_decel_lims = -6
+        
 class ProceedTrajectoryConstraints(TrajectoryConstraints):
     '''
     waypoint_vel_sampling_range = [(minimum velocity*,),...,(minimum velocity,maximum velocity),..,(minimum velocity*,maximum velocity*)]
@@ -382,9 +387,36 @@ class TrajectoryPlanner:
         self.indx = indx
         return self.path
     
+    def generate_emergency_braking(self):
+        u,dec,s = self.traj_constr_obj.init_vel, self.traj_constr_obj.max_decel_lims, 0
+        _u = u
+        traj = []
+        all_trajs = {'aggressive':[]}
+        if self.traj_constr_obj.ag_obj.x != self.traj_constr_obj.waypoints[0][0] and self.traj_constr_obj.ag_obj.y != self.traj_constr_obj.waypoints[0][1]:
+            wp_linestr = linestring.LineString(self.traj_constr_obj.waypoints)
+            dist_from_wp_origin = wp_linestr.project(Point(self.traj_constr_obj.ag_obj.x,self.traj_constr_obj.ag_obj.y))
+            wp_linestr =  rg_utils.cut_line(wp_linestr, dist_from_wp_origin)[1]
+        else:
+            wp_linestr = linestring.LineString(self.traj_constr_obj.waypoints)
+        yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
+        traj.append((0,self.traj_constr_obj.ag_obj.x,self.traj_constr_obj.ag_obj.y,self.traj_constr_obj.init_vel,self.traj_constr_obj.max_decel_lims,0,(self.traj_constr_obj.init_vel**2)*self.curvature(s/self.arcl),yaw,s))    
+        for st in np.arange(.1,self.horizon+.1,.1):
+            _v = max(_u + dec*.1, 0)
+            _s = max(_u*0.1 + dec*0.1**2, 0)
+            s += _s
+            traj_pt = wp_linestr.interpolate(s)
+            yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl)) if s > 0 else traj[-1][7]
+            traj.append((st,traj_pt.x,traj_pt.y,_v,self.traj_constr_obj.max_decel_lims if _v > 0 else 0,0,(_v**2)*self.curvature(s/self.arcl) if s>0 and _v >0 else 0,yaw,s))
+            _u = _v
+        all_trajs['aggressive'].append(traj)
+        self.all_trajectories = all_trajs
+        return all_trajs
+            
     def generate_trajectory(self,all=None):
         horizon = self.horizon
         self.generate_path()
+        if isinstance(self.traj_constr_obj, EmergencyBrakingConstraints):
+            return self.generate_emergency_braking()
         if round(self.v0,2) < 0.1 and isinstance(self.traj_constr_obj, WaitTrajectoryConstraints):
             yaw = math.atan2(self.cs_y.derivative()(0), self.cs_x.derivative()(0))
             traj = []
