@@ -644,10 +644,13 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                     _u = self.cs_v_s(s_pts[xidx-1])
                     _v =  self.cs_v_s(s_pts[xidx])
                     _S = s_pts[xidx]-s_pts[xidx-1]
-                    t = 2*_S/(_u+_v)
-                    if t+time_pts[-1] <= time_pts[-1]:
-                        brk=1
-                    time_pts.append(t+time_pts[-1])
+                    if abs(_u-0.0) < 1e-05 and abs(_v-0.0) < 1e-05:
+                        time_pts.append(np.inf)
+                    else:
+                        t = 2*_S/(_u+_v)
+                        if t+time_pts[-1] <= time_pts[-1]:
+                            brk=1
+                        time_pts.append(t+time_pts[-1])
             try:        
                 self.cs_t_s = CubicSpline(time_pts,s_pts)
             except ValueError:
@@ -663,7 +666,7 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
             
             ''' fit the time scaled velocity curve'''
             #self.cs_v = CubicSpline(time_pts,this_vel_targets)
-            ord = min(len(time_pts)-1,3)
+            
             #self.cs_v = UnivariateSpline(time_pts,this_vel_targets,w=np.arange(len(time_pts)+1,1,-1),k=ord)
             if time_pts[-1] < horizon:
                 _addl_timepts = np.arange(time_pts[-1]+.5,horizon+.5,.5).tolist()
@@ -672,6 +675,7 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                 this_vel_targets += _addl_velpts
             _aug = rg_utils.redistribute_vertices(linestring.LineString(list(zip(time_pts,this_vel_targets))), 1)
             time_pts,this_vel_targets = [x[0] for x in _aug.coords],[x[1] for x in _aug.coords]
+            ord = min(len(time_pts)-1,3)
             self.cs_v = UnivariateSpline(time_pts,this_vel_targets,k=ord)
             #plt.plot(time_st,[self.cs_v(z) for z in time_st])
             #plt.plot(time_pts,this_vel_targets,'x')

@@ -569,7 +569,7 @@ class Node:
     tree_size = 0
     
     def print_Node(self,last_decision_level,results):
-        node_result = {'uspe':[],'mspe':[],'qlk':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
+        node_result = {'uspe':[],'mspe':[],'qlk':{'ag1':[],'ag2':[]},'ql0':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
         util_residuals = {'uspe':[],'mspe':[],'qlk':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
         if self.level == last_decision_level:
             if hasattr(self, 'emp_path') and self.emp_path:
@@ -660,35 +660,55 @@ class Node:
                         else:
                             util_residuals['ag2_robust'].append(None)
                             
-                if hasattr(self.parent, 'ql1_response'):
-                    ag1_resp = self.parent.ql1_response['response']['agent_1'][:,0]
+                if hasattr(self.parent, 'all_ql1_resppnse'):
+                    for prec in self.parent.all_ql1_resppnse.keys():
+                        node_result['qlk'] = dict()
+                        node_result['qlk'][prec] = {'ag1':[],'ag2':[]}
+                        ag1_resp = self.parent.all_ql1_resppnse[prec]['response']['agent_1'][:,0]
+                        for i,resp in enumerate(ag1_resp):
+                            if resp['traj_l'] == ag1_emp_trajl:
+                                node_result['qlk'][prec]['ag1'].append((i,1))
+                            else:
+                                _prob = self.parent.all_ql1_resppnse[prec]['distribution']['agent_1'][ag1_emp_trajl][i]
+                                node_result['qlk'][prec]['ag1'].append((i,_prob))
+                        ag1_emp_utils = None
+                        ag1_all_trajls = self.parent.all_ql1_resppnse[prec]['all_responses']['agent_1'][:,0,0]['traj_l']
+                        _this_trajl_index, = np.where(np.isclose(ag1_all_trajls, ag1_emp_trajl))
+                        ag1_emp_utils = self.parent.all_ql1_resppnse[prec]['all_responses']['agent_1'][_this_trajl_index,:,0]['utils'] if _this_trajl_index.shape[0] > 0 else None
+                        ag1_utilsdiff_qlk = ag1_resp['utils'] - ag1_emp_utils if ag1_emp_utils is not None else None      
+                        
+                        ag2_resp = self.parent.all_ql1_resppnse[prec]['response']['agent_2'][:,0]
+                        for i,resp in enumerate(ag2_resp):
+                            if resp['traj_l'] == ag2_emp_trajl:
+                                node_result['qlk'][prec]['ag2'].append((i,1))
+                            else:
+                                _prob = self.parent.all_ql1_resppnse[prec]['distribution']['agent_2'][ag2_emp_trajl][i]
+                                node_result['qlk'][prec]['ag2'].append((i,_prob))
+                        ag2_emp_utils = None
+                        ag2_all_trajls = self.parent.all_ql1_resppnse[prec]['all_responses']['agent_2'][:,0,0]['traj_l']
+                        _this_trajl_index, = np.where(np.isclose(ag2_all_trajls, ag2_emp_trajl))
+                        ag2_emp_utils = self.parent.all_ql1_resppnse[prec]['all_responses']['agent_2'][_this_trajl_index,0,:]['utils'] if _this_trajl_index.shape[0] > 0 else None
+                        ag2_utilsdiff_qlk = ag2_resp['utils'] - ag2_emp_utils if ag2_emp_utils is not None else None      
+                        util_residuals['qlk']['ag1'].append(ag1_utilsdiff_qlk)
+                        util_residuals['qlk']['ag2'].append(ag2_utilsdiff_qlk)
+                
+                if hasattr(self.parent, 'ql0ql0_response'):
+                    ag1_resp = self.parent.ql0ql0_response['response']['agent_1'][:,0]
                     for i,resp in enumerate(ag1_resp):
                         if resp['traj_l'] == ag1_emp_trajl:
-                            node_result['qlk']['ag1'].append((i,1))
+                            node_result['ql0']['ag1'].append((i,1))
                         else:
-                            _prob = self.parent.ql1_response['distribution']['agent_1'][ag1_emp_trajl][i]
-                            node_result['qlk']['ag1'].append((i,_prob))
-                    ag1_emp_utils = None
-                    ag1_all_trajls = self.parent.ql1_response['all_responses']['agent_1'][:,0,0]['traj_l']
-                    _this_trajl_index, = np.where(np.isclose(ag1_all_trajls, ag1_emp_trajl))
-                    ag1_emp_utils = self.parent.ql1_response['all_responses']['agent_1'][_this_trajl_index,:,0]['utils'] if _this_trajl_index.shape[0] > 0 else None
-                    ag1_utilsdiff_qlk = ag1_resp['utils'] - ag1_emp_utils if ag1_emp_utils is not None else None      
-                    
-                    ag2_resp = self.parent.ql1_response['response']['agent_2'][:,0]
+                            _prob = self.parent.ql0ql0_response['distribution']['agent_1'][ag1_emp_trajl][i]
+                            node_result['ql0']['ag1'].append((i,_prob))
+                    ag2_resp = self.parent.ql0ql0_response['response']['agent_2'][:,0]
                     for i,resp in enumerate(ag2_resp):
                         if resp['traj_l'] == ag2_emp_trajl:
-                            node_result['qlk']['ag2'].append((i,1))
+                            node_result['ql0']['ag2'].append((i,1))
                         else:
-                            _prob = self.parent.ql1_response['distribution']['agent_2'][ag2_emp_trajl][i]
-                            node_result['qlk']['ag2'].append((i,_prob))
-                    ag2_emp_utils = None
-                    ag2_all_trajls = self.parent.ql1_response['all_responses']['agent_2'][:,0,0]['traj_l']
-                    _this_trajl_index, = np.where(np.isclose(ag2_all_trajls, ag2_emp_trajl))
-                    ag2_emp_utils = self.parent.auto_strategy_response['agent_2_all_responses'][_this_trajl_index,0,:]['utils'] if _this_trajl_index.shape[0] > 0 else None
-                    ag2_utilsdiff_qlk = ag2_resp['utils'] - ag2_emp_utils if ag2_emp_utils is not None else None      
-                    util_residuals['qlk']['ag1'].append(ag1_utilsdiff_qlk)
-                    util_residuals['qlk']['ag2'].append(ag2_utilsdiff_qlk)
+                            _prob = self.parent.ql0ql0_response['distribution']['agent_2'][ag2_emp_trajl][i]
+                            node_result['ql0']['ag2'].append((i,_prob))
                     
+                        
                 print_str = [str(self.level)]
                 for k,v in node_result.items():
                     print_str.append(k+':'+str(v))
@@ -741,24 +761,41 @@ class Node:
                             for i,resp in enumerate(ag2_resp):
                                 if  min(ag2_resp[i].peds_eq_acts) <= ag2_emp_trajl <= max(ag2_resp[i].peds_eq_acts):
                                     node_result['ag2_robust'].append(i) 
-                        if hasattr(self.parent, 'ql1_response'):
-                            ag1_resp = self.parent.ql1_response['response']['agent_1'][:,0]
+                        if hasattr(self.parent, 'all_ql1_resppnse'):
+                            for prec in self.parent.all_ql1_resppnse.keys():
+                                node_result['qlk'] = dict()
+                                node_result['qlk'][prec] = {'ag1':[],'ag2':[]}
+                                ag1_resp = self.parent.all_ql1_resppnse[prec]['response']['agent_1'][:,0]
+                                for i,resp in enumerate(ag1_resp):
+                                    if resp['traj_l'] == ag1_emp_trajl:
+                                        node_result['qlk'][prec]['ag1'].append((i,1))
+                                    else:
+                                        _prob = self.parent.all_ql1_resppnse[prec]['distribution']['agent_1'][ag1_emp_trajl][i]
+                                        node_result['qlk'][prec]['ag1'].append((i,_prob))
+                                        
+                                ag2_resp = self.parent.all_ql1_resppnse[prec]['response']['agent_2'][:,0]
+                                for i,resp in enumerate(ag2_resp):
+                                    if resp['traj_l'] == ag2_emp_trajl:
+                                        node_result['qlk'][prec]['ag2'].append((i,1))
+                                    else:
+                                        _prob = self.parent.all_ql1_resppnse[prec]['distribution']['agent_2'][ag2_emp_trajl][i]
+                                        node_result['qlk'][prec]['ag2'].append((i,_prob))
+                        if hasattr(self.parent, 'ql0ql0_response'):
+                            ag1_resp = self.parent.ql0ql0_response['response']['agent_1'][:,0]
                             for i,resp in enumerate(ag1_resp):
                                 if resp['traj_l'] == ag1_emp_trajl:
-                                    node_result['qlk']['ag1'].append((i,1))
+                                    node_result['ql0']['ag1'].append((i,1))
                                 else:
-                                    _prob = self.parent.ql1_response['distribution']['agent_1'][ag1_emp_trajl][i]
-                                    node_result['qlk']['ag1'].append((i,_prob))
-                                    
-                            ag2_resp = self.parent.ql1_response['response']['agent_2'][:,0]
+                                    _prob = self.parent.ql0ql0_response['distribution']['agent_1'][ag1_emp_trajl][i]
+                                    node_result['ql0']['ag1'].append((i,_prob))
+                            ag2_resp = self.parent.ql0ql0_response['response']['agent_2'][:,0]
                             for i,resp in enumerate(ag2_resp):
                                 if resp['traj_l'] == ag2_emp_trajl:
-                                    node_result['qlk']['ag2'].append((i,1))
+                                    node_result['ql0']['ag2'].append((i,1))
                                 else:
-                                    _prob = self.parent.ql1_response['distribution']['agent_2'][ag2_emp_trajl][i]
-                                    node_result['qlk']['ag2'].append((i,_prob))
-                            
-                
+                                    _prob = self.parent.ql0ql0_response['distribution']['agent_2'][ag2_emp_trajl][i]
+                                    node_result['ql0']['ag2'].append((i,_prob))   
+                        
                         print_str = [str(self.level)]
                         for k,v in node_result.items():
                             print_str.append(k+':'+str(v))
@@ -1229,10 +1266,10 @@ def animate_one_scenario(gt_file_id):
 
 
 def run_all_scenarios():
-    freq = 1
+    freq = .5
     initialize_db = True
     initialize_files = False
-    rerun_failed_files = True
+    rerun_failed_files = False
     failed_files = []
     scene_type = sys.argv[2]
     rg_constants.SCENE_TYPE = ('REAL',None)
@@ -1303,9 +1340,17 @@ def run_all_scenarios():
                 gt.solve(RobustResponse(context))
                 print('solving robust. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
                 start_time = time.time()
+                context.precision_parm = 0.8
                 gt.solve(Ql1Model(context))
-                print('solving qlk. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
-    
+                print('solving qlk=1(0.8). strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                start_time = time.time()
+                context.precision_parm = 0.5
+                gt.solve(Ql1Model(context))
+                print('solving qlk=1(0.5). strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                start_time = time.time()
+                gt.solve(Ql0Model(context))
+                print('solving qlk=0. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                
                 gt.scene_def = scene_def
                 gt.maneuver_constraints = None
                 pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'), gt)
@@ -1408,7 +1453,7 @@ def plot_all_results():
     range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'qlk':[]}
     pooling_map = {'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()}
     disagreement_map = {k:{'ag1':[],'ag2':[]} for k in itertools.product(pooling_map.keys(), pooling_map.keys())}
-    line_count = 0
+    line_count,tot = 0,0
     resultfiles = [f for f in listdir(rg_constants.RESULTS_FILES) if isfile(join(rg_constants.RESULTS_FILES, f))]
     residual_freq_ct = {'ag1_auto_resp':OrderedDict(), 'ag1_robust_resp':OrderedDict(), 'ag1_spe':OrderedDict(), 'qlk': OrderedDict()}
     scene_type = 'lt'
@@ -1422,12 +1467,23 @@ def plot_all_results():
         #if line_count >= 30:
         #    break
         res_info = all_utils.utils.pickle_load(os.path.join(rg_constants.RESULTS_FILES,resfile_name))
-        for l,rl in res_info.items():
-            if l!= 6:
-                continue
+        lpm_template = {2:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()},
+                                 4:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()},
+                                 6:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()}}
+        level_pooling_map =dict()
+        for ag in ['ag1','ag2']:
+            for k,v in lpm_template.items():
+                level_pooling_map[(k,ag)] = copy.deepcopy(v)
+        if len(res_info) < 3:
+            continue
+        for l in [2,4,6]:
+            
+            rl = res_info[l]
+            
             for res in rl:
                 node_res = res['node_result']
-                util_residuals = res['util_residuals']
+                if l==6:
+                    util_residuals = res['util_residuals']
                 no_expl = True
                 if (node_res['ag1_ac'] is not False or node_res['ag1_nac'] is not False) and (node_res['ag2_ac'] is not False or node_res['ag2_nac'] is not False):
                     if node_res['ag1_ac'] is not False and  len(node_res['ag1_ac']) == 1:
@@ -1440,85 +1496,85 @@ def plot_all_results():
                         node_res['ag2_nac'] = node_res['ag2_nac'][0]
                         
                     if node_res['ag1_ac'] is not False:
-                        hit_ct['ac'] += .5
+                        
                         range_var['ac'].append(len(np.arange(min(node_res['ag1_ac']), max(node_res['ag1_ac'])+.5,.5)))
                         type_list = np.arange(round(min(node_res['ag1_ac']),1), round(max(node_res['ag1_ac']),1)+.5,.5).tolist()
                         type_list.sort()
-                        if tuple(type_list) not in pooling_map['ac']:
-                            pooling_map['ac'][tuple(type_list)] = 1
+                        if tuple(type_list) not in level_pooling_map[(l,'ag1')]['ac']:
+                            level_pooling_map[(l,'ag1')]['ac'][tuple(type_list)] = 1
                         else:
-                            pooling_map['ac'][tuple(type_list)] += 1
+                            level_pooling_map[(l,'ag1')]['ac'][tuple(type_list)] += 1
                     else:
-                        hit_ct['nac'] += .5
+                        
                         range_var['nac'].append(len(np.arange(min(node_res['ag1_nac']), max(node_res['ag1_nac'])+.5,.5)))
                         type_list = np.arange(round(min(node_res['ag1_nac']),1), round(max(node_res['ag1_nac']),1)+.5,.5).tolist()
                         type_list.sort()
-                        if tuple(type_list) not in pooling_map['nac']:
-                            pooling_map['nac'][tuple(type_list)] = 1
+                        if tuple(type_list) not in level_pooling_map[(l,'ag1')]['nac']:
+                            level_pooling_map[(l,'ag1')]['nac'][tuple(type_list)] = 1
                         else:
-                            pooling_map['nac'][tuple(type_list)] += 1
+                            level_pooling_map[(l,'ag1')]['nac'][tuple(type_list)] += 1
                     if node_res['ag2_ac'] is not False:
-                        hit_ct['ac'] += .5
+                        
                         range_var['ac'].append(len(np.arange(min(node_res['ag2_ac']), max(node_res['ag2_ac'])+.5,.5)))
                         type_list = np.arange(round(min(node_res['ag2_ac']),1), round(max(node_res['ag2_ac']),1)+.5,.5).tolist()
                         type_list.sort()
-                        if tuple(type_list) not in pooling_map['ac']:
-                            pooling_map['ac'][tuple(type_list)] = 1
+                        if tuple(type_list) not in level_pooling_map[(l,'ag2')]['ac']:
+                            level_pooling_map[(l,'ag2')]['ac'][tuple(type_list)] = 1
                         else:
-                            pooling_map['ac'][tuple(type_list)] += 1
+                            level_pooling_map[(l,'ag2')]['ac'][tuple(type_list)] += 1
                     else:
-                        hit_ct['nac'] += .5
+                        
                         range_var['nac'].append(len(np.arange(min(node_res['ag2_nac']), max(node_res['ag2_nac'])+.5,.5)))
                         type_list = np.arange(round(min(node_res['ag2_nac']),1), round(max(node_res['ag2_nac']),1)+.5,.5).tolist()
                         type_list.sort()
-                        if tuple(type_list) not in pooling_map['nac']:
-                            pooling_map['nac'][tuple(type_list)] = 1
+                        if tuple(type_list) not in level_pooling_map[(l,'ag2')]['nac']:
+                            level_pooling_map[(l,'ag2')]['nac'][tuple(type_list)] = 1
                         else:
-                            pooling_map['nac'][tuple(type_list)] += 1
+                            level_pooling_map[(l,'ag2')]['nac'][tuple(type_list)] += 1
                 if len(node_res['ag1_auto_resp']) > 0:
-                    hit_ct['auto_resp'] += 0.5
+                    
                     range_var['auto_resp'].append(len(node_res['ag1_auto_resp']))
                     type_list = node_res['ag1_auto_resp']
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
-                    if tuple(type_list) not in pooling_map['auto_resp']:
-                        pooling_map['auto_resp'][tuple(type_list)] = 1
+                    if tuple(type_list) not in level_pooling_map[(l,'ag1')]['auto_resp']:
+                        level_pooling_map[(l,'ag1')]['auto_resp'][tuple(type_list)] = 1
                     else:
-                        pooling_map['auto_resp'][tuple(type_list)] += 1
+                        level_pooling_map[(l,'ag1')]['auto_resp'][tuple(type_list)] += 1
                     
                 if len(node_res['ag2_auto_resp']) > 0:
-                    hit_ct['auto_resp'] += 0.5
+                    
                     range_var['auto_resp'].append(len(node_res['ag2_auto_resp']))
                     type_list = node_res['ag2_auto_resp']
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
-                    if tuple(type_list) not in pooling_map['auto_resp']:
-                        pooling_map['auto_resp'][tuple(type_list)] = 1
+                    if tuple(type_list) not in level_pooling_map[(l,'ag2')]['auto_resp']:
+                        level_pooling_map[(l,'ag2')]['auto_resp'][tuple(type_list)] = 1
                     else:
-                        pooling_map['auto_resp'][tuple(type_list)] += 1
+                        level_pooling_map[(l,'ag2')]['auto_resp'][tuple(type_list)] += 1
                     
                 if len(node_res['ag1_robust']) > 0:
-                    hit_ct['robust'] += 0.5
+                    
                     range_var['robust'].append(len(node_res['ag1_robust']))
                     type_list = node_res['ag1_robust']
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
-                    if tuple(type_list) not in pooling_map['robust']:
-                        pooling_map['robust'][tuple(type_list)] = 1
+                    if tuple(type_list) not in level_pooling_map[(l,'ag1')]['robust']:
+                        level_pooling_map[(l,'ag1')]['robust'][tuple(type_list)] = 1
                     else:
-                        pooling_map['robust'][tuple(type_list)] += 1
+                        level_pooling_map[(l,'ag1')]['robust'][tuple(type_list)] += 1
                     
                     
                 if len(node_res['ag2_robust']) > 0:
-                    hit_ct['robust'] += 0.5
+                    
                     range_var['robust'].append(len(node_res['ag2_robust']))
                     type_list = node_res['ag2_robust']
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
-                    if tuple(type_list) not in pooling_map['robust']:
-                        pooling_map['robust'][tuple(type_list)] = 1
+                    if tuple(type_list) not in level_pooling_map[(l,'ag2')]['robust']:
+                        level_pooling_map[(l,'ag2')]['robust'][tuple(type_list)] = 1
                     else:
-                        pooling_map['robust'][tuple(type_list)] += 1
+                        level_pooling_map[(l,'ag2')]['robust'][tuple(type_list)] += 1
                     
                 if len(node_res['qlk']['ag1']) >0 and len(node_res['qlk']['ag2']) >0:
                     _ag1_br = [1 if x[1]==1 else 0 for x in node_res['qlk']['ag1']]
@@ -1526,31 +1582,27 @@ def plot_all_results():
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
                     if len(type_list) > 0:
-                        if tuple(type_list) not in pooling_map['qlk']:
-                            pooling_map['qlk'][tuple(type_list)] = 1
+                        if tuple(type_list) not in level_pooling_map[(l,'ag1')]['qlk']:
+                            level_pooling_map[(l,'ag1')]['qlk'][tuple(type_list)] = 1
                         else:
-                            pooling_map['qlk'][tuple(type_list)] += 1
+                            level_pooling_map[(l,'ag1')]['qlk'][tuple(type_list)] += 1
                     type_list = [x[0] for x in node_res['qlk']['ag2'] if x[1] == 1]
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
                     if len(type_list) > 0:
-                        if tuple(type_list) not in pooling_map['qlk']:
-                            pooling_map['qlk'][tuple(type_list)] = 1
+                        if tuple(type_list) not in level_pooling_map[(l,'ag2')]['qlk']:
+                            level_pooling_map[(l,'ag2')]['qlk'][tuple(type_list)] = 1
                         else:
-                            pooling_map['qlk'][tuple(type_list)] += 1
+                            level_pooling_map[(l,'ag2')]['qlk'][tuple(type_list)] += 1
                         
                     _ag2_br = [1 if x[1]==1 else 0 for x in node_res['qlk']['ag2']]
-                    if max(_ag1_br) == 1:
-                        hit_ct['qlk'] += 0.5
-                    if max(_ag2_br) == 1:
-                        hit_ct['qlk'] += 0.5
                     #hit_ct['qlk'] += max(_ag1_br + [x[1] for x in node_res['qlk']['ag2']])
                     #range_var['qlk'].append(min(len(_ag1_br),len(node_res['qlk']['ag2'])))
                     range_var['qlk'].append(_ag1_br.count(1) + _ag2_br.count(1))
-                    #pooling_map['qlk'] += [x for x in _ag1_br if x in node_res['qlk']['ag2']]
+                    #level_pooling_map['qlk'] += [x for x in _ag1_br if x in node_res['qlk']['ag2']]
                     
                 if len(node_res['mspe']) > 0:
-                    hit_ct['mspe'] += 1
+                    
                     #print('mspe')
                     #print(list(set([x[0] for x in node_res['mspe']])))
                     #print(list(set([x[1] for x in node_res['mspe']])))
@@ -1559,47 +1611,65 @@ def plot_all_results():
                     type_list = list(set([x[0] for x in node_res['mspe']]))
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
-                    if tuple(type_list) not in pooling_map['mspe']:
-                        pooling_map['mspe'][tuple(type_list)] = 1
+                    if tuple(type_list) not in level_pooling_map[(l,'ag1')]['mspe']:
+                        level_pooling_map[(l,'ag1')]['mspe'][tuple(type_list)] = 1
                     else:
-                        pooling_map['mspe'][tuple(type_list)] += 1
+                        level_pooling_map[(l,'ag1')]['mspe'][tuple(type_list)] += 1
                     type_list = list(set([x[1] for x in node_res['mspe']]))
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
-                    if tuple(type_list) not in pooling_map['mspe']:
-                        pooling_map['mspe'][tuple(type_list)] = 1
+                    if tuple(type_list) not in level_pooling_map[(l,'ag2')]['mspe']:
+                        level_pooling_map[(l,'ag2')]['mspe'][tuple(type_list)] = 1
                     else:
-                        pooling_map['mspe'][tuple(type_list)] += 1
+                        level_pooling_map[(l,'ag2')]['mspe'][tuple(type_list)] += 1
                     
                 if len(node_res['uspe']) > 0:
-                    hit_ct['uspe'] += 1
+                    
                     range_var['uspe'].append(len(list(set([x[0] for x in node_res['uspe']]))))
                     range_var['uspe'].append(len(list(set([x[1] for x in node_res['uspe']]))))
                     type_list = list(set([x[0] for x in node_res['uspe']]))
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
-                    if tuple(type_list) not in pooling_map['uspe']:
-                        pooling_map['uspe'][tuple(type_list)] = 1
+                    if tuple(type_list) not in level_pooling_map[(l,'ag1')]['uspe']:
+                        level_pooling_map[(l,'ag1')]['uspe'][tuple(type_list)] = 1
                     else:
-                        pooling_map['uspe'][tuple(type_list)] += 1
+                        level_pooling_map[(l,'ag1')]['uspe'][tuple(type_list)] += 1
                     type_list = list(set([x[1] for x in node_res['uspe']]))
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
-                    if tuple(type_list) not in pooling_map['uspe']:
-                        pooling_map['uspe'][tuple(type_list)] = 1
+                    if tuple(type_list) not in level_pooling_map[(l,'ag2')]['uspe']:
+                        level_pooling_map[(l,'ag2')]['uspe'][tuple(type_list)] = 1
                     else:
-                        pooling_map['uspe'][tuple(type_list)] += 1
+                        level_pooling_map[(l,'ag2')]['uspe'][tuple(type_list)] += 1
                     
                     #print('uspe')
                     #print(list(set([x[0] for x in node_res['uspe']])))
                     #print(list(set([x[1] for x in node_res['uspe']])))
-                
+                no_expl = True
+                if l == 6:    
+                    for ag in ['ag1','ag2']:
+                        for m,tc in level_pooling_map[(l,ag)].items():
+                            if len(tc) >0 and len(level_pooling_map[(4,ag)][m]) >0 and len(level_pooling_map[(2,ag)][m]) >0:
+                                type_list = list(set.intersection(set(list(tc.keys())[0]), set(list(level_pooling_map[(4,ag)][m].keys())[0]), set(list(level_pooling_map[(2,ag)][m].keys())[0])))
+                                if len(type_list) > 0:
+                                    no_expl = False
+                                    hit_ct[m] += 0.5
+                                if tuple(type_list) not in pooling_map[m]:
+                                    pooling_map[m][tuple(type_list)] = 1
+                                else:
+                                    pooling_map[m][tuple(type_list)] += 1
+                    tot += 1
+                    if no_expl:
+                        if 'no_exp' not in hit_ct:
+                            hit_ct['no_exp'] = 1
+                        else:
+                            hit_ct['no_exp'] += 1
                 '''    
                 if node_res['mspe'] is not False:
                     hit_ct['mspe'] += 1
                 if node_res['uspe'] is not False:
                     hit_ct['uspe'] += 1
-                '''
+                
                 if (node_res['ag1_ac'] is not False or node_res['ag1_nac'] is not False or len(node_res['ag1_auto_resp']) > 0 or len(node_res['ag1_robust']) > 0) and  \
                     (node_res['ag2_ac'] is not False or node_res['ag2_nac'] is not False or len(node_res['ag2_auto_resp']) > 0 or len(node_res['ag2_robust']) > 0):
                         no_expl = False
@@ -1607,39 +1677,39 @@ def plot_all_results():
                     no_expl = False
                 if len(node_res['mspe']) > 0:
                     no_expl = False
+                '''
                 
-                if no_expl:
-                    hit_ct['no_exp'] += 1
-                    
-                ''' residual distributions '''
-                _e = util_residuals['ag1_auto_resp'][0][0,2]
-                _e = round(_e, 2)
-                if _e not in residual_freq_ct['ag1_auto_resp']:
-                    residual_freq_ct['ag1_auto_resp'][_e] = 1
-                else:
-                    residual_freq_ct['ag1_auto_resp'][_e] += 1
                 
-                _e = util_residuals['ag1_robust'][0][0,2]
-                _e = round(_e, 2)
-                if _e not in residual_freq_ct['ag1_robust_resp']:
-                    residual_freq_ct['ag1_robust_resp'][_e] = 1
-                else:
-                    residual_freq_ct['ag1_robust_resp'][_e] += 1
+                if l == 6:
+                    ''' residual distributions '''
+                    _e = util_residuals['ag1_auto_resp'][0][0,2]
+                    _e = round(_e, 2)
+                    if _e not in residual_freq_ct['ag1_auto_resp']:
+                        residual_freq_ct['ag1_auto_resp'][_e] = 1
+                    else:
+                        residual_freq_ct['ag1_auto_resp'][_e] += 1
                     
-                _e = util_residuals['mspe'][0][0][2,2]
-                _e = round(_e, 2)
-                if _e not in residual_freq_ct['ag1_spe']:
-                    residual_freq_ct['ag1_spe'][_e] = 1
-                else:
-                    residual_freq_ct['ag1_spe'][_e] += 1
+                    _e = util_residuals['ag1_robust'][0][0,2]
+                    _e = round(_e, 2)
+                    if _e not in residual_freq_ct['ag1_robust_resp']:
+                        residual_freq_ct['ag1_robust_resp'][_e] = 1
+                    else:
+                        residual_freq_ct['ag1_robust_resp'][_e] += 1
+                        
+                    _e = util_residuals['mspe'][0][0][2,2]
+                    _e = round(_e, 2)
+                    if _e not in residual_freq_ct['ag1_spe']:
+                        residual_freq_ct['ag1_spe'][_e] = 1
+                    else:
+                        residual_freq_ct['ag1_spe'][_e] += 1
+                        
+                    _e = util_residuals['qlk']['ag1'][0][0,2]
+                    _e = round(_e, 2)
+                    if _e not in residual_freq_ct['qlk']:
+                        residual_freq_ct['qlk'][_e] = 1
+                    else:
+                        residual_freq_ct['qlk'][_e] += 1
                     
-                _e = util_residuals['qlk']['ag1'][0][0,2]
-                _e = round(_e, 2)
-                if _e not in residual_freq_ct['qlk']:
-                    residual_freq_ct['qlk'][_e] = 1
-                else:
-                    residual_freq_ct['qlk'][_e] += 1
-                
                 
     plt.figure()
     plt.bar(np.arange(len(hit_ct)), list(hit_ct.values()), align='center', alpha=0.5)
@@ -1674,7 +1744,7 @@ def plot_all_results():
     '''
     
     '''
-    for k,v in pooling_map.items():
+    for k,v in level_pooling_map.items():
         if k == 'auto_resp' or k == 'uspe' or k == 'mspe' or k == 'robust' or k=='qlk':
             v = [-1 + (x*0.5) for x in v]
         print(k,np.mean(v),np.std(v),np.min(v),np.max(v))
@@ -1690,7 +1760,7 @@ def plot_all_results():
     '''
     plt.figure()
     plt.title('threshold values')
-    plt.errorbar(list(pooling_map.keys()), _x, err_range,linestyle='None', marker='^')
+    plt.errorbar(list(level_pooling_map.keys()), _x, err_range,linestyle='None', marker='^')
     '''
     '''
     for k,v in residual_freq_ct.items():
@@ -1698,9 +1768,17 @@ def plot_all_results():
         plt.title('residuals - '+k)
         plt.scatter([x for x in v.keys()],[x for x in v.values()])
     '''
+    print('---------')
+    for k,v in pooling_map.items():
+        mean_type = 0
+        for t1,t2 in v.items():
+            mean_type += sum(list(t1))*t2
+        mean_type = mean_type / sum(list(v.values()))
+        print(k,mean_type)
+    print('---------')
     print('for scene type',scene_type)
     for k,v in hit_ct.items():
-        print(k,':',v)
+        print(k,':',round(v/tot,5))
     plt.show()
                   
 def plot_velocity_profiles(gt,scene_def,freq):
@@ -1797,8 +1875,8 @@ if __name__ == '__main__':
     #rg_constants.CURRENT_RG_FILE_ID = '769_44_49_34,1341'
     #run_one_scenario(dbfile_id='770', agent1_id=186, agent2_id=159, start_ts=178.511667, initialize_db=True, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
-    plot_all_results()
+    #plot_all_results()
     #run_all_scenarios()
-    #results_all_scenarios()
+    results_all_scenarios()
     f=1
     

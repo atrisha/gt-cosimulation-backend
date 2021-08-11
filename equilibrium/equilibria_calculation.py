@@ -538,11 +538,10 @@ class RobustResponse(Equilibria):
                     node.robust_response['agent_2'][j] = None
                     node.robust_response_type['agent_2'] = None
         
-
-class Ql1Model(Equilibria):
+class Ql0Model(Equilibria):
     
-    def calc_response_ql0ql0(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        
+    def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
+        precision_parm = self.run_context.precision_parm
         gamma_matrix = np.meshgrid(np.linspace(start=-1, stop=1, num=5), np.linspace(start=-1, stop=1, num=5))
         gamma_matrix.reverse()
         ''' agent_1=0 agent_2 = 1'''
@@ -607,6 +606,14 @@ class Ql1Model(Equilibria):
                  
         resp_vect = np.array(ag_2_resp)
         resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+        _denom = [x['utils'] for x in resp_vect_sorted]
+        _denom = [np.exp(precision_parm*x) for x in _denom]
+        _denom = sum(_denom)
+        for r in resp_vect_sorted:
+            _tl = r['traj_l'][0,0]
+            _u = r['utils']
+            _prob = np.divide(np.exp(precision_parm*_u),_denom)
+            agent2_distr[_tl] = np.copy(_prob)[0,:]
         ''' agent 2 is the ql0 agent, therefore this is its response based on maxmax behavior'''
         node.ql0ql0_response['response']['agent_2'] =  np.copy(resp_vect_sorted[0,:,:])
         
@@ -659,13 +666,29 @@ class Ql1Model(Equilibria):
                  
         resp_vect = np.array(ag_1_resp)
         resp_vect_sorted = np.sort(resp_vect,axis=0,order='utils')[::-1]
+        _denom = [x['utils'] for x in resp_vect_sorted]
+        _denom = [np.exp(precision_parm*x) for x in _denom]
+        _denom = sum(_denom)
+        for r in resp_vect_sorted:
+            _tl = r['traj_l'][0,0]
+            _u = r['utils']
+            _prob = np.divide(np.exp(precision_parm*_u),_denom)
+            agent1_distr[_tl] = np.copy(_prob)[0,:]
+        
         ''' agent 1 is the ql0 agent too in this, therefore this is its response based on maxmax behavior'''
         node.ql0ql0_response['response']['agent_1'] =  np.copy(resp_vect_sorted[0,:,:])
+        node.ql0ql0_response['distribution']['agent_1'] = agent1_distr
+        node.ql0ql0_response['distribution']['agent_2'] = agent2_distr
+        
         f=1
+    
+    
+class Ql1Model(Equilibria):
+    
     
     def calc_response(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
         
-        precision_parm = 1
+        precision_parm = self.run_context.precision_parm
         ''' find the optimal response for both agents. 
             Create a map of action(trajectory_length) -> probability, based on precision_parm
             each agent best response to that belief distribution '''
@@ -804,6 +827,10 @@ class Ql1Model(Equilibria):
         
         node.ql1_response['distribution']['agent_1'] = agent1_distr
         node.ql1_response['distribution']['agent_2'] = agent2_distr
+        if not hasattr(node, 'all_ql1_resppnse'):
+            node.all_ql1_resppnse = dict()
+        if precision_parm not in node.all_ql1_resppnse:
+            node.all_ql1_resppnse[precision_parm] = copy.deepcopy(node.ql1_response)
         f=1
             
         

@@ -37,5 +37,5 @@ def parse_scenes(inp_scene=None):
         for k1,v1 in v.items():
             print(k1,v1)
     if inp_scene is not None:
-        return Polygon(lane_map[str(inp_scene)]['RT_NW'])
-#parse_scenes(2)
+        return Polygon(lane_map[str(inp_scene)]['LT_NE'])
+#parse_scenes()

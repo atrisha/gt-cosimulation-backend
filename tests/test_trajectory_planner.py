@@ -312,21 +312,31 @@ class TestScenario():
         assert hasattr(agent1_motion, 'all_trajectories') and len(agent1_motion.all_trajectories) > 0     
         
     def test_single_trajectory_error(self):
-        current_file_id = 777
-        initial_speed = 10
-        agent_waypoints = [(538854.1657702327, 4814018.085952609), (538856.0002291499, 4814018.889787147), (538861.4284720746, 4814021.429022473), (538864.1301538836, 4814022.727820344), (538867.7309706514, 4814024.483216654), (538869.532823122, 4814025.371317894), (538873.1320277019, 4814027.162192175), (538874.9216535272, 4814028.059832407), (538880.2036583938, 4814030.7304266235), (538885.2731625313, 4814033.31303813)]
-        agent_waypoint_segments = ['exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n', 'exec-turn_n']
-        direction = 'L_N_E'
         initialize_db = False
         freq = 0.5
-        scene_def = SyntheticScenarioDef(-974, initial_speed, agent_waypoints, agent_waypoint_segments, direction, str(current_file_id), initialize_db, 76, freq)
+        occluding_vehicle_initial_speed = 3.2471666666666668
+        agent_waypoints = [(538893.3, 4814021.84), (538893.36, 4814027.04), (538872.38, 4814030.39), (538856.54, 4814022.62), (538846.5, 4813984.48)]
+        agent_waypoint_segments = ['ln_e_1', 'ln_e_1', 'ln_e_1', 'ln_e_1', 'exec-turn_e']
+        # Uncomment this set of waypoint and wapoint segments to see that removing 'exec-turn_e' allows this to work
+        # agent_waypoints = [(538893.3, 4814021.84), (538893.36, 4814027.04), (538872.38, 4814030.39), (538856.54, 4814022.62)]
+        # agent_waypoint_segments = ['ln_e_1', 'ln_e_1', 'ln_e_1', 'ln_e_1']
+        scene_def = SyntheticScenarioDef(141, occluding_vehicle_initial_speed, agent_waypoints, agent_waypoint_segments, 'L_E_S', 782, initialize_db, 0, freq)
         ag_obj = scene_def.agent
-        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='emergency_braking', ag_obj=ag_obj, lead_ag_obj=None)
-        agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver='emergency_braking', mode=None, horizon=6)
+        initialize_db = False
+        freq = 0.5
+        occluding_vehicle_initial_speed = 0.9428055555555555
+        agent_waypoints = [(538851.32, 4814020.17), (538849.41, 4814019.3), (538849.42, 4814019.3), (538849.45, 4814019.31), (538848.21, 4814018.72), (538847.04, 4814018.11), (538845.84, 4814017.46), (538844.65, 4814016.72), (538840.13, 4814007.88), (538849.95, 4813982.52)]
+        agent_waypoint_segments = ['prep-turn_e', 'prep-turn_e', 'prep-turn_e', 'prep-turn_e', 'prep-turn_e', 'prep-turn_e', 'prep-turn_e', 'prep-turn_e', 'exec-turn_e', 'ln_s_-1']
+        scene_def1 = SyntheticScenarioDef(75, occluding_vehicle_initial_speed, agent_waypoints, agent_waypoint_segments, 'L_E_S', 782, initialize_db, 0, freq)
+        lead_ag_obj = scene_def1.agent
+        constr = TrajectoryConstraintsFactory.get_constraint_object(maneuver='follow_lead_into_intersection', ag_obj=ag_obj, lead_ag_obj=lead_ag_obj)
+        constr.set_limit_constraints(max_lat_acc_lims=5.6,max_vel_lims=22,max_acc_lims=6,max_jerk_lims=3)
+        
+        agent_motion = VehicleTrajectoryPlanner(traj_constr_obj=constr,maneuver='follow_lead_into_intersection', mode=None, horizon=6)
         agent_motion.generate_trajectory(True)
         assert hasattr(agent_motion, 'all_trajectories') and len(agent_motion.all_trajectories) > 0
-                                
-                    
+                                    
+                        
   
 
     
