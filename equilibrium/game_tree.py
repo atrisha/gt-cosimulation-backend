@@ -18,7 +18,7 @@ from planners.trajectory_planner import VehicleTrajectoryPlanner, PedestrianTraj
 from equilibrium.utilities import Utilities
 from numpy import linalg as LA
 import math
-from maps.States import ScenarioDef
+from maps.States import ScenarioDef, inDScenarioDef
 import constants
 import csv
 from all_utils.utils import pickle_dump_to_dir
@@ -698,14 +698,20 @@ class Node:
                         if resp['traj_l'] == ag1_emp_trajl:
                             node_result['ql0']['ag1'].append((i,1))
                         else:
-                            _prob = self.parent.ql0ql0_response['distribution']['agent_1'][ag1_emp_trajl][i]
+                            if ag1_emp_trajl in self.parent.ql0ql0_response['distribution']['agent_1']:
+                                _prob = self.parent.ql0ql0_response['distribution']['agent_1'][ag1_emp_trajl][i]
+                            else:
+                                _prob = 0
                             node_result['ql0']['ag1'].append((i,_prob))
                     ag2_resp = self.parent.ql0ql0_response['response']['agent_2'][:,0]
                     for i,resp in enumerate(ag2_resp):
                         if resp['traj_l'] == ag2_emp_trajl:
                             node_result['ql0']['ag2'].append((i,1))
                         else:
-                            _prob = self.parent.ql0ql0_response['distribution']['agent_2'][ag2_emp_trajl][i]
+                            if ag2_emp_trajl in self.parent.ql0ql0_response['distribution']['agent_2']:
+                                _prob = self.parent.ql0ql0_response['distribution']['agent_2'][ag2_emp_trajl][i]
+                            else:
+                                _prob = 0
                             node_result['ql0']['ag2'].append((i,_prob))
                     
                         
@@ -786,14 +792,20 @@ class Node:
                                 if resp['traj_l'] == ag1_emp_trajl:
                                     node_result['ql0']['ag1'].append((i,1))
                                 else:
-                                    _prob = self.parent.ql0ql0_response['distribution']['agent_1'][ag1_emp_trajl][i]
+                                    if ag1_emp_trajl in self.parent.ql0ql0_response['distribution']['agent_1']:
+                                        _prob = self.parent.ql0ql0_response['distribution']['agent_1'][ag1_emp_trajl][i]
+                                    else:
+                                        _prob = 0
                                     node_result['ql0']['ag1'].append((i,_prob))
                             ag2_resp = self.parent.ql0ql0_response['response']['agent_2'][:,0]
                             for i,resp in enumerate(ag2_resp):
                                 if resp['traj_l'] == ag2_emp_trajl:
                                     node_result['ql0']['ag2'].append((i,1))
                                 else:
-                                    _prob = self.parent.ql0ql0_response['distribution']['agent_2'][ag2_emp_trajl][i]
+                                    if ag2_emp_trajl in self.parent.ql0ql0_response['distribution']['agent_2']:
+                                        _prob = self.parent.ql0ql0_response['distribution']['agent_2'][ag2_emp_trajl][i]
+                                    else:
+                                        _prob = 0
                                     node_result['ql0']['ag2'].append((i,_prob))   
                         
                         print_str = [str(self.level)]
@@ -1258,14 +1270,55 @@ def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
     gt.animate('mspe')
     f=1
 
+def run_one_ind_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
+    rg_constants.SCENE_TYPE = ('REAL',None)
+    
+    scene_def = inDScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts,freq=freq)
+    maneuver_constraints = scene_def.setup_trajectory_constraints()
+    tree_builder = TreeBuilder(freq,initialize_db)
+    tree_builder.build_complete_tree(maneuver_constraints)
+    
+    file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+    gt = GameTree(file_id,freq)
+    gt.build_tree(maneuver_constraints)
+    type(gt.root).progress_ctr = 0
+    type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
+    m = MinDistanceGapModel(file_id,freq)
+    m.build_model()   
+    context = RunContext()
+    context.gt_obj = gt
+    manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'track_speed'}}
+    context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True,'maneuver_constraints':maneuver_constraints})
+    drassign_obj = AssignDistRanges()
+    drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
+    start_time = time.time()
+    eq_obj = SatisficingEquilibria(context)
+    gt.solve(eq_obj)
+    print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(RobustResponse(context))
+    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(Ql1Model(context))
+    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    
+    gt.scene_def = scene_def
+    assign_emp_nodes(gt,gt.scene_def)
+    gt.print_tree()
+    #plot_velocity_profiles(gt,scene_def,freq)
+    gt.animate('mspe')
+    f=1
+
 
 def animate_one_scenario(gt_file_id):
     gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,gt_file_id+'.gt'))
     gt.animate('mspe')
                 
 
-
 def run_all_scenarios():
+    run_all_wmad_scenarios()
+    
+def run_all_wmad_scenarios():
     freq = .5
     initialize_db = True
     initialize_files = False
@@ -1449,14 +1502,14 @@ def results_all_scenarios():
 
 def plot_all_results():
     
-    hit_ct = {'uspe':0,'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0,'qlk':0}  
-    range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'qlk':[]}
-    pooling_map = {'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()}
+    hit_ct = {'uspe':0,'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0,'ql0':0}  
+    range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'ql0':[]}
+    pooling_map = {'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()}
     disagreement_map = {k:{'ag1':[],'ag2':[]} for k in itertools.product(pooling_map.keys(), pooling_map.keys())}
     line_count,tot = 0,0
     resultfiles = [f for f in listdir(rg_constants.RESULTS_FILES) if isfile(join(rg_constants.RESULTS_FILES, f))]
     residual_freq_ct = {'ag1_auto_resp':OrderedDict(), 'ag1_robust_resp':OrderedDict(), 'ag1_spe':OrderedDict(), 'qlk': OrderedDict()}
-    scene_type = 'lt'
+    scene_type = 'rt'
     for resfile_name in resultfiles:
         this_scene_type = resfile_name.split('_')[1]
         if scene_type != this_scene_type:
@@ -1467,9 +1520,9 @@ def plot_all_results():
         #if line_count >= 30:
         #    break
         res_info = all_utils.utils.pickle_load(os.path.join(rg_constants.RESULTS_FILES,resfile_name))
-        lpm_template = {2:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()},
-                                 4:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()},
-                                 6:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'qlk':OrderedDict()}}
+        lpm_template = {2:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()},
+                                 4:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()},
+                                 6:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()}}
         level_pooling_map =dict()
         for ag in ['ag1','ag2']:
             for k,v in lpm_template.items():
@@ -1575,31 +1628,63 @@ def plot_all_results():
                         level_pooling_map[(l,'ag2')]['robust'][tuple(type_list)] = 1
                     else:
                         level_pooling_map[(l,'ag2')]['robust'][tuple(type_list)] += 1
+                
+                for prec,val in node_res['qlk'].items():  
+                    if 'qlk'+'-'+str(prec) not in level_pooling_map[(l,'ag1')]:
+                        level_pooling_map[(l,'ag1')]['qlk'+'-'+str(prec)] = OrderedDict()
+                        level_pooling_map[(l,'ag2')]['qlk'+'-'+str(prec)] = OrderedDict()
+                    if len(val['ag1']) >0 and len(val['ag2']) >0:
+                        _ag1_br = [1 if x[1]<=0.5 else 0 for x in val['ag1']]
+                        type_list = [x[0] for x in val['ag1'] if x[1] == 1]
+                        type_list = rg_utils.to_type(type_list)
+                        type_list.sort()
+                        if len(type_list) > 0:
+                            if tuple(type_list) not in level_pooling_map[(l,'ag1')]['qlk'+'-'+str(prec)]:
+                                level_pooling_map[(l,'ag1')]['qlk'+'-'+str(prec)][tuple(type_list)] = 1
+                            else:
+                                level_pooling_map[(l,'ag1')]['qlk'+'-'+str(prec)][tuple(type_list)] += 1
+                        type_list = [x[0] for x in val['ag2'] if x[1] == 1]
+                        type_list = rg_utils.to_type(type_list)
+                        type_list.sort()
+                        if len(type_list) > 0:
+                            if tuple(type_list) not in level_pooling_map[(l,'ag2')]['qlk'+'-'+str(prec)]:
+                                level_pooling_map[(l,'ag2')]['qlk'+'-'+str(prec)][tuple(type_list)] = 1
+                            else:
+                                level_pooling_map[(l,'ag2')]['qlk'+'-'+str(prec)][tuple(type_list)] += 1
+                            
+                        _ag2_br = [1 if x[1]<=0.5 else 0 for x in val['ag2']]
+                        #hit_ct['qlk'] += max(_ag1_br + [x[1] for x in node_res['qlk']['ag2']])
+                        #range_var['qlk'].append(min(len(_ag1_br),len(node_res['qlk']['ag2'])))
+                        if 'qlk'+'-'+str(prec) not in range_var:
+                            range_var['qlk'+'-'+str(prec)] = []
+                        range_var['qlk'+'-'+str(prec)].append(_ag1_br.count(1) + _ag2_br.count(1))
+                        #level_pooling_map['qlk'] += [x for x in _ag1_br if x in node_res['qlk']['ag2']]
                     
-                if len(node_res['qlk']['ag1']) >0 and len(node_res['qlk']['ag2']) >0:
-                    _ag1_br = [1 if x[1]==1 else 0 for x in node_res['qlk']['ag1']]
-                    type_list = [x[0] for x in node_res['qlk']['ag1'] if x[1] == 1]
+                if len(node_res['ql0']['ag1']) >0 and len(node_res['ql0']['ag2']) >0:
+                    _ag1_br = [1 if x[1]<=0.5 else 0 for x in node_res['ql0']['ag1']]
+                    type_list = [x[0] for x in node_res['ql0']['ag1'] if x[1] == 1]
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
                     if len(type_list) > 0:
-                        if tuple(type_list) not in level_pooling_map[(l,'ag1')]['qlk']:
-                            level_pooling_map[(l,'ag1')]['qlk'][tuple(type_list)] = 1
+                        if tuple(type_list) not in level_pooling_map[(l,'ag1')]['ql0']:
+                            level_pooling_map[(l,'ag1')]['ql0'][tuple(type_list)] = 1
                         else:
-                            level_pooling_map[(l,'ag1')]['qlk'][tuple(type_list)] += 1
-                    type_list = [x[0] for x in node_res['qlk']['ag2'] if x[1] == 1]
+                            level_pooling_map[(l,'ag1')]['ql0'][tuple(type_list)] += 1
+                    type_list = [x[0] for x in node_res['ql0']['ag2'] if x[1] == 1]
                     type_list = rg_utils.to_type(type_list)
                     type_list.sort()
                     if len(type_list) > 0:
-                        if tuple(type_list) not in level_pooling_map[(l,'ag2')]['qlk']:
-                            level_pooling_map[(l,'ag2')]['qlk'][tuple(type_list)] = 1
+                        if tuple(type_list) not in level_pooling_map[(l,'ag2')]['ql0']:
+                            level_pooling_map[(l,'ag2')]['ql0'][tuple(type_list)] = 1
                         else:
-                            level_pooling_map[(l,'ag2')]['qlk'][tuple(type_list)] += 1
+                            level_pooling_map[(l,'ag2')]['ql0'][tuple(type_list)] += 1
                         
-                    _ag2_br = [1 if x[1]==1 else 0 for x in node_res['qlk']['ag2']]
+                    _ag2_br = [1 if x[1]<=0.5 else 0 for x in node_res['ql0']['ag2']]
                     #hit_ct['qlk'] += max(_ag1_br + [x[1] for x in node_res['qlk']['ag2']])
                     #range_var['qlk'].append(min(len(_ag1_br),len(node_res['qlk']['ag2'])))
-                    range_var['qlk'].append(_ag1_br.count(1) + _ag2_br.count(1))
+                    range_var['ql0'].append(_ag1_br.count(1) + _ag2_br.count(1))
                     #level_pooling_map['qlk'] += [x for x in _ag1_br if x in node_res['qlk']['ag2']]
+                
                     
                 if len(node_res['mspe']) > 0:
                     
@@ -1649,10 +1734,14 @@ def plot_all_results():
                 if l == 6:    
                     for ag in ['ag1','ag2']:
                         for m,tc in level_pooling_map[(l,ag)].items():
+                            if m not in pooling_map:
+                                pooling_map[m] = OrderedDict()
                             if len(tc) >0 and len(level_pooling_map[(4,ag)][m]) >0 and len(level_pooling_map[(2,ag)][m]) >0:
                                 type_list = list(set.intersection(set(list(tc.keys())[0]), set(list(level_pooling_map[(4,ag)][m].keys())[0]), set(list(level_pooling_map[(2,ag)][m].keys())[0])))
                                 if len(type_list) > 0:
                                     no_expl = False
+                                    if m not in hit_ct:
+                                        hit_ct[m] = 0
                                     hit_ct[m] += 0.5
                                 if tuple(type_list) not in pooling_map[m]:
                                     pooling_map[m][tuple(type_list)] = 1
@@ -1874,9 +1963,10 @@ if __name__ == '__main__':
     #rg_constants.SCENE_TYPE = ('synthetic','test')
     #rg_constants.CURRENT_RG_FILE_ID = '769_44_49_34,1341'
     #run_one_scenario(dbfile_id='770', agent1_id=186, agent2_id=159, start_ts=178.511667, initialize_db=True, freq=0.5)
+    run_one_ind_scenario(dbfile_id='2', agent1_id=30, agent2_id=31, start_ts=None, initialize_db=True, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
     #plot_all_results()
     #run_all_scenarios()
-    results_all_scenarios()
+    #results_all_scenarios()
     f=1
     

@@ -9,9 +9,9 @@ from pyproj import Proj
 from shapely.geometry import LineString, Polygon
 
 
-def parse_scenes(inp_scene=None):
+def parse_scenes(inp_scene,segs):
     lane_map = dict()
-    for scene_id in [str(x) for x in [2,7,30]]:
+    for scene_id in [str(x) for x in [inp_scene]]:
         myProj = Proj("+proj=utm +zone=32N, +south +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
         root = ET.parse('D:\\repeated_games_data\\intersection_dataset\\maps\\inD_scene_'+scene_id+'.osm').getroot()
         node_map = dict()
@@ -37,5 +37,12 @@ def parse_scenes(inp_scene=None):
         for k1,v1 in v.items():
             print(k1,v1)
     if inp_scene is not None:
-        return Polygon(lane_map[str(inp_scene)]['LT_NE'])
+        regions = []
+        for s in segs:
+            try:
+                regions.append(Polygon(lane_map[str(inp_scene)][s]))
+            except:
+                f=1
+                raise
+        return regions
 #parse_scenes()

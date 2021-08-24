@@ -31,6 +31,7 @@ td2 <- td[2:4] %>% rownames_to_column()
 td2$rowname <- paste(td2$agent1_type ,td2$agent2_type)
 td2 <- gather(td2, ag_id, value, agent1_type:agent2_type, factor_key=TRUE)
 f2 <- ggplot(td2, aes(x = rowname, y = ag_id, fill = value)) + geom_tile() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), axis.text.y=element_blank())
+f2
 ggarrange(f1, f2,ncol = 1, nrow = 2)
 
 
@@ -46,7 +47,7 @@ for (m in levels(td2$agent1_model_type)) {
   type_var_df <- rbind(type_var_df,x)
 }
 ggplot(type_var_df, aes(model, mean)) + geom_point() + geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd))
-ggplot(type_var_df, aes(x=mean, y=sd, color=model)) + geom_point() +     geom_text(label=type_var_df$model) + labs(x='mean success count across agent types',y='SD of success count across agent types')
+ggplot(type_var_df, aes(x=mean, y=sd)) + geom_point(aes(shape=model), size=4)+  labs(x='mean success count across agent types',y='SD of success count across agent types')
 
 
 td <- mbi_dataframe[mbi_dataframe$dist_gap  > 2.5, ]
@@ -55,8 +56,10 @@ t <- mbi_dataframe[mbi_dataframe$dist_gap  <= 2.5, ]
 t$strat_type = "low_distance_gap"
 td <- rbind(td,t)
 
-
-
+td$agent1_model_type <- as.factor(td$agent1_model_type)
+for (m in levels(td$agent1_model_type)) {
+  print(m)
+}
 
 
 
@@ -110,6 +113,7 @@ for (m in levels(td2$agent1_model_type)) {
   type_var_df <- rbind(type_var_df,x)
 }
 ggplot(type_var_df, aes(model, mean)) + geom_point() + geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd))
+ggplot(type_var_df, aes(x=mean, y=sd)) + geom_point(aes(shape=model), size=4)+  labs(x='mean success count across agent types',y='SD of success count across agent types')
 
 td$type_comb <- paste(td$lt_type,td$st1_type,td$st2_type)
 td2 <- ddply(td, .(model_type,type_comb), function(td) c(count=nrow(td)))

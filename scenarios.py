@@ -14,7 +14,9 @@ from all_utils import utils
 import csv
 import rg_constants
 from shapely.geometry import LineString, Polygon, Point
+import os
 from maps.parse_inD import parse_scenes
+import copy
 
 def right_turn_interaction_scenarios():
     tot = 0
@@ -312,12 +314,140 @@ def pedestrian_interaction_scenarios():
 
 class inD_Scenarios:
     
+    def __init__(self,init_scenefile,vehicle_ids):
+        track_map = OrderedDict()
+        self.init_scenefile = init_scenefile
+        self.file_init_end = {2:7, 7:18, 30:33}
+        
+    def setup_database(self,file_id): 
+        conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
+        c = conn.cursor()
+        q_string = 'CREATE TABLE TRAJECTORIES_'+str(file_id)+' ( `TRACK_ID` INTEGER, `X` NUMERIC, `Y` NUMERIC, `SPEED` NUMERIC, `TAN_ACC` NUMERIC, `LAT_ACC` NUMERIC, `TIME` NUMERIC, `ANGLE` NUMERIC, `TRAFFIC_REGIONS` TEXT )'
+        try:
+            c.execute(q_string)
+        except sqlite3.OperationalError:
+            q_string = 'DELETE FROM TRAJECTORIES_'+str(file_id)
+            c.execute(q_string)
+        q_string = 'CREATE TABLE TRAJECTORIES_'+str(file_id)+'_EXT ( `TRACK_ID` INTEGER, `TIME` NUMERIC, `ASSIGNED_SEGMENT` TEXT, `L1_ACTION` TEXT, `L2_ACTION` TEXT )'
+        try:
+            c.execute(q_string)
+        except sqlite3.OperationalError:
+            q_string = 'DELETE FROM TRAJECTORIES_'+str(file_id)+'_EXT'
+            c.execute(q_string)
+        conn.commit()
+        
+    def insert_data(self,file_id,i_string,ins_list):
+        conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
+        c = conn.cursor()
+        c.executemany(i_string,ins_list)
+        conn.commit()
+        conn.close()
+    
+    def interpolate_segments(self,file_id):
+        conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
+        c = conn.cursor()
+        q_string = 'SELECT DISTINCT TRACK_ID FROM TRAJECTORIES_'+str(file_id)+'_EXT WHERE ASSIGNED_SEGMENT IS NULL ORDER BY TRACK_ID;'
+        c.execute(q_string)
+        ids_2_interpolate = c.fetchall()
+        up_list = []
+        for _e in ids_2_interpolate:
+            id = _e[0]
+            q_string = 'SELECT TIME,ASSIGNED_SEGMENT FROM TRAJECTORIES_'+str(file_id)+'_EXT WHERE TRACK_ID='+str(id)+' AND ASSIGNED_SEGMENT IS NOT NULL ORDER BY TIME'
+            c.execute(q_string)
+            res = c.fetchone()
+            f_time, seg = res[0], res[1]
+            q_string = 'SELECT TIME,ASSIGNED_SEGMENT FROM TRAJECTORIES_'+str(file_id)+'_EXT WHERE TRACK_ID='+str(id)+' AND ASSIGNED_SEGMENT IS NULL and TIME < '+str(f_time)+' ORDER BY TIME;'
+            c.execute(q_string)
+            res = c.fetchall()
+            for row in res:
+                up_list.append((seg,row[0],id))
+        u_string = 'UPDATE TRAJECTORIES_'+str(file_id)+'_EXT SET ASSIGNED_SEGMENT=? WHERE TIME=? AND TRACK_ID=?'
+        c.executemany(u_string,up_list)
+        conn.commit()
+        conn.close()
+                
+    
+    def load_tracks(self):
+        scene_data = dict()
+        seg_regions = {(30,32):{'ag1':{'ln_n_1':None,'prep-turn_n':None,'exec-turn_n':None,'ln_e_-1':None},'ag2':{'ln_s_2':None,'l_n_s_l':None,'ln_n_-1':None}},
+                              (7,17):{'ag1':{'ln_n_1':None,'prep-turn_n':None,'exec-turn_n':None,'ln_e_-2':None},'ag2':{'ln_s_2':None,'l_s_n_l':None,'ln_n_-1':None}},
+                              (2,6):{'ag1':{'ln_s_4':None,'rt_prep-turn_s':None,'rt_exec-turn_s':None,'ln_e_-1':None},'ag2':{'ln_w_3':None,'l_w_e_r':None,'ln_e_-2':None}}}
+        for k,v in seg_regions.items():
+            for ag,segs in v.items():
+                for seg in segs.keys():
+                    reg = parse_scenes(k[0],[seg])
+                    segs[seg] = copy.deepcopy(reg[0])
+            
+        with open('D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files.csv', mode='r') as csv_file:
+            csv_reader = csv.DictReader(csv_file)
+            for row in csv_reader:
+                if row['file_id'] not in scene_data:
+                    scene_data[row['file_id']] = [[row['ag1_id']],[row['ag2_id']]]
+                else:
+                    scene_data[row['file_id']][0].append(row['ag1_id'])
+                    scene_data[row['file_id']][1].append(row['ag2_id'])
+        
+        for file_id,agids in scene_data.items():
+            traj_ins_data,traj_ext_ins_data = [], []
+            scene_fileid = file_id
+            xUtmOrigin,yUtmOrigin,frame_rate = None, None, None
+            last_seg_info = dict()
+            with open('D:\\datasets\\inD-tools\\drone-dataset-tools-master\\drone-dataset-tools-master\\data\\'+scene_fileid+'_recordingMeta.csv', mode='r') as csv_file:
+                csv_reader = csv.DictReader(csv_file)
+                for row in csv_reader:
+                    #print(f'Column names are {", ".join(row)}')
+                    xUtmOrigin,yUtmOrigin,frame_rate = float(row['xUtmOrigin']), float(row['yUtmOrigin']), float(row['frameRate'])
+                    break
+            with open('D:\\datasets\\inD-tools\\drone-dataset-tools-master\\drone-dataset-tools-master\\data\\'+scene_fileid+'_tracks.csv', mode='r') as csv_file:
+                csv_reader = csv.DictReader(csv_file)
+                line_count = 0
+                for row in csv_reader:
+                    if row['trackId'] in agids[0] or row['trackId'] in agids[1]:
+                        f=1
+                        track_id = int(row['trackId'])
+                        x,y = xUtmOrigin + float(row['xCenter']),yUtmOrigin + float(row['yCenter']) 
+                        speed, tan_acc, lat_acc = float(row['lonVelocity'])*3.6, float(row['lonAcceleration']), float(row['latAcceleration'])
+                        t = float(row['frame'])/frame_rate
+                        ang = np.deg2rad(float(row['heading']))
+                        traf_reg = None
+                        assigned_seg = None
+                        pt = Point(x,y)
+                        
+                        for k,v in seg_regions.items():
+                            if k[0] <= int(file_id) <= k[1]:
+                                if row['trackId'] in agids[0]:
+                                    for seg, reg in v['ag1'].items():
+                                        if pt.within(reg):
+                                            assigned_seg = seg
+                                else:
+                                    for seg, reg in v['ag2'].items():
+                                        if pt.within(reg):
+                                            assigned_seg = seg
+                        if assigned_seg is not None:
+                            last_seg_info[track_id] = assigned_seg
+                        else:
+                            if track_id in last_seg_info:
+                                assigned_seg = last_seg_info[track_id]
+                        traj_ins_data.append((track_id,x,y,speed,tan_acc,lat_acc,t,ang,traf_reg))
+                        traj_ext_ins_data.append((track_id,t,assigned_seg,None,None))
+                        f=1
+            self.setup_database(file_id)
+            i_string = 'REPLACE INTO TRAJECTORIES_'+str(file_id)+' VALUES (?,?,?,?,?,?,?,?,?)'
+            self.insert_data(file_id, i_string, traj_ins_data)
+            i_string = 'REPLACE INTO TRAJECTORIES_'+str(file_id)+'_EXT VALUES (?,?,?,?,?)'
+            self.insert_data(file_id, i_string, traj_ext_ins_data)
+            self.interpolate_segments(file_id)
+            f=1
+    
     def right_turn_scenarios(self):
         track_meta_map = dict()
-        lt_region = parse_scenes(30)
-        scenes = dict()
-        for scene_fileid in ['0'+str(x) if x < 10 else str(x) for x in np.arange(30,33)]:
-            print('processing', scene_fileid)
+        lt_focus_regions, st_focus_regions = parse_scenes(30,['ln_n_1']), parse_scenes(30,['ln_s_2'])
+        
+        tot = 0
+        for scene_fileid in ['0'+str(x) if x < 10 else str(x) for x in  np.arange(self.init_scenefile,self.file_init_end[self.init_scenefile])]:
+            vehicles = dict()
+            track_info = dict()
+            #print('processing', scene_fileid)
             xUtmOrigin,yUtmOrigin = None, None
             with open('D:\\datasets\\inD-tools\\drone-dataset-tools-master\\drone-dataset-tools-master\\data\\'+scene_fileid+'_recordingMeta.csv', mode='r') as csv_file:
                 csv_reader = csv.DictReader(csv_file)
@@ -330,14 +460,12 @@ class inD_Scenarios:
                 csv_reader = csv.DictReader(csv_file)
                 line_count = 0
                 for row in csv_reader:
-                    if line_count == 0:
-                        #print(f'Column names are {", ".join(row)}')
-                        f=1
                     if row['class'] not in ['pedestrian','bicycle']:
                         track_meta_map[row['trackId']] = (row['initialFrame'], row['finalFrame']) 
                     line_count += 1
-            scenes[scene_fileid] = dict()
-            print('UTM origins are',xUtmOrigin,yUtmOrigin)
+            vehicles[scene_fileid] = {'lt':dict(),'st':dict()}
+            
+            #print('UTM origins are',xUtmOrigin,yUtmOrigin)
             with open('D:\\datasets\\inD-tools\\drone-dataset-tools-master\\drone-dataset-tools-master\\data\\'+scene_fileid+'_tracks.csv', mode='r') as csv_file:
                 csv_reader = csv.DictReader(csv_file)
                 line_count = 0
@@ -346,18 +474,51 @@ class inD_Scenarios:
                         #print(f'Column names are {", ".join(row)}')
                         f=1
                     if row['trackId'] in track_meta_map:
-                        if Point(float(row['xCenter']) + xUtmOrigin, float(row['yCenter']) + yUtmOrigin).within(lt_region):
-                            if row['trackId'] not in scenes[scene_fileid]:
-                                scenes[scene_fileid][row['trackId']] = track_meta_map[row['trackId']] 
+                        for lt_region in lt_focus_regions:
+                            if Point(float(row['xCenter']) + xUtmOrigin, float(row['yCenter']) + yUtmOrigin).within(lt_region):
+                                if row['trackId'] not in vehicles[scene_fileid]['lt']:
+                                    vehicles[scene_fileid]['lt'][row['trackId']] = track_meta_map[row['trackId']] 
+                        for st_region in st_focus_regions:
+                            pt = Point(float(row['xCenter']) + xUtmOrigin, float(row['yCenter']) + yUtmOrigin)
+                            if pt.within(st_region):
+                                if row['trackId'] not in vehicles[scene_fileid]['st']:
+                                    vehicles[scene_fileid]['st'][row['trackId']] = (track_meta_map[row['trackId']], pt) 
                                  
                     line_count += 1
-        tot = 0
-        for k,v in scenes.items():
-            tot += len(v)
-            for k1,v1 in v.items():
-                print(k,k1,v1)
+        
+            scene_map = dict()
+            #print('left turning')
+            for k,v in vehicles.items():
+                for k1,v1 in v['lt'].items():
+                    for k2,v2 in v['st'].items():
+                        if v1[0] <= v2[0][0] <= v1[1]:
+                            if k not in scene_map:
+                                scene_map[k] = dict()
+                                
+                            if k1 not in scene_map[k]:
+                                scene_map[k][k1] = OrderedDict()
+                                track_info[k1] = dict()
+                            if k2 not in scene_map[k][k1]:
+                                current_vehs = [x[2] for x in scene_map[k][k1].values()]
+                                if len(current_vehs) > 0:
+                                    if min([LineString([v2[1],x]).length for x in current_vehs]) > 20:
+                                        scene_map[k][k1][k2] = OrderedDict()
+                                        scene_map[k][k1][k2] = (v1,v2[0],v2[1],min([LineString([v2[1],x]).length for x in current_vehs])) 
+                                        track_info[k2] = dict()
+                                        tot += 1
+                                else:
+                                    scene_map[k][k1][k2] = OrderedDict()
+                                    scene_map[k][k1][k2] = (v1,v2[0],v2[1],None)
+                                    track_info[k2] = dict() 
+                                    tot += 1
+                                
+            for k,v in scene_map.items():
+                for k1,v1 in v.items():
+                    for k2,v2 in v1.items():
+                        print(k,k1,k2)
         print('total',tot)
         
 if __name__ == '__main__':
-    sc = inD_Scenarios()
-    sc.right_turn_scenarios()
+    sc = inD_Scenarios(30,[])
+    #sc.right_turn_scenarios()
+    sc.load_tracks()

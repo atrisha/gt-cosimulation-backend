@@ -272,7 +272,7 @@ class TrajectoryPlanner:
                     prev_valid_indx = next(i-idx for idx,item in enumerate(reversed(vp[:i+1])) if item is not None)
                     #prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
                     prev_valid_prop = (s_pts[i]-s_pts[prev_valid_indx])/(s_pts[nxt_valid_indx]-s_pts[prev_valid_indx])
-                    intpl_v = prev_valid_prop*vp[prev_valid_indx] + (1-prev_valid_prop)*vp[nxt_valid_indx]
+                    intpl_v = (1-prev_valid_prop)*vp[prev_valid_indx] + prev_valid_prop*vp[nxt_valid_indx]
                     _v.append(max(0.1,intpl_v))
             self.all_velocity_profiles.append(_v)
         
@@ -299,13 +299,13 @@ class TrajectoryPlanner:
             if self.print_console:
                 print(indx)
             if hasattr(self.traj_constr_obj, 'path_degree'):
-                k = self.traj_constr_obj.path_degree
+                k = min(self.traj_constr_obj.path_degree, len(indx)-1)
             else:
                 k = 2
             if len(indx) > 2 and not (min([x[0] for x in wp]) == max([x[0] for x in wp])):
                 try:
                     self.cs_x = UnivariateSpline(indx,[x[0] for x in wp],k=k)
-                except ValueError:
+                except:
                     print(indx,[x[0] for x in wp])
                     #plt.plot(indx,[x[0] for x in wp])
                     #plt.show()

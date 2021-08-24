@@ -36,4 +36,4 @@ def get_rg_db_path(file_id):
     
 
     
-    
+ind_dataset_path = 'D:\\repeated_games_data\\ind_dataset'    

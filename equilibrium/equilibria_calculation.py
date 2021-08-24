@@ -172,7 +172,7 @@ class Equilibria:
            
     def calc_extended_util(self,ag1_traj_frag,ag2_traj_frag,n):
         if rg_constants.SCENE_TYPE[0] == 'REAL' or (rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['merge_before_intersection']) \
-            or (rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['parking_pullout']):
+         or rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['parking_pullout']:
             ag1_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_1'][ag1_traj_frag.get_last().manv]
             try:
                 ag2_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_2'][ag2_traj_frag.get_last().manv]
@@ -202,8 +202,8 @@ class Equilibria:
                 ag1_trajl = n.path_from_root['agent_1'].total_length
                 ag2_trajl = n.path_from_root['agent_2'].total_length
                 if ag2_trajl < 40 and ag1_trajl > 6:
-                    ag1_ext_utils = (0,1)
-                    ag2_ext_utils = (1,0)
+                    ag1_ext_utils = (-1,0.5)
+                    ag2_ext_utils = (0.5,0)
                     return [ag1_ext_utils,ag2_ext_utils]
                 else:
                     return [(mean_safe_util,None), (mean_safe_util,None)]

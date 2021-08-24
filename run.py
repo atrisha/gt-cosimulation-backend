@@ -209,6 +209,7 @@ def run_parking_pullout(run_id,agent1_id, agent2_id,agent1_vel, agent2_vel):
     gt.solve(RobustResponse(context))
     print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
     start_time = time.time()
+    context.precision_parm = 1
     gt.solve(Ql1Model(context))
     print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
     
@@ -564,7 +565,7 @@ class ProcessResults:
                                                 success = False
                                         else:
                                             success = False
-                                        if success:
+                                        if success or (dist_gap12 is not None and dist_gap13 is not None and min(dist_gap12,dist_gap13) < 1):
                                             lt_speed = lt_vel_1.replace(',','.')
                                             st1_speed = k12.split('_')[3].split('.')[0].replace(',','.')
                                             st2_speed = k13.split('_')[3].split('.')[0].replace(',','.')
@@ -600,8 +601,8 @@ class ProcessResults:
                                             else:
                                                 print(m_type,m_type,lt_type, st1_type, st2_type,lt_speed,st1_speed,st2_speed,ag1_trajl,ag2_trajl,ag3_trajl,dist_gap12,dist_gap13,success, sep=",")
                                                 res_writer.writerow([m_type,m_type,lt_type, st1_type, st2_type,lt_speed,st1_speed,st2_speed,ag1_trajl,ag2_trajl,ag3_trajl,dist_gap12,dist_gap13,success])
-                                            
-                                            if ag2_trajl > 20 and ag3_trajl<45 :
+                                        else:    
+                                            if st1_speed > 15 :
                                                 '''
                                                 plt.figure()
                                                 plt.plot([x[1] for x in ag1_traj],[x[2] for x in ag1_traj],color='blue')
@@ -615,7 +616,10 @@ class ProcessResults:
                                                     ag1_traj = results_map[k13][m_type][type_comb1][2].loaded_traj
                                                 analytics_obj = UniWeberAnalytics('769')
                                                 analytics_obj.animate_scene([[(x[1],x[2]) for x in ag1_traj],[(x[1],x[2]) for x in ag2_traj],[(x[1],x[2]) for x in ag3_traj]],None)
+                                                
                                             
+                                                
+                                               
                                             
         pickle_dump_to_dir(os.path.join(rg_constants.RESULTS_FILES,'strat_types'+'.result'), strat_types)                              
         pickle_dump_to_dir(os.path.join(rg_constants.RESULTS_FILES,'succ_map_type'+'.result'), succ_map_type)  
@@ -634,7 +638,7 @@ class ProcessResults:
         model_types = ['auto_resp','ql1_resp','robust_resp']
         u = Utilities()
         print('****** RESULTS CSV START ********')
-        with open(os.path.join(rg_constants.RESULTS_FILES,'all_results_1'+'.csv'), mode='w') as resfile:
+        with open(os.path.join(rg_constants.RESULTS_FILES,'all_results'+'.csv'), mode='w') as resfile:
             res_writer = csv.writer(resfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             res_writer.writerow(['agent1_model_type','agent2_model_type','agent1_type','agent2_type','agent1_speed','agent2_speed','agent1_traj_length','agent1_traj_length2','agent2_traj_length','agent2_traj_length2','dist_gap'])
             succ_ct = None
@@ -731,9 +735,9 @@ class ProcessResults:
                                 strat_types[dist_gap][m_type] = 0
                             else:
                                 strat_types[dist_gap][m_type] += 1
-                            
+                            '''
                             if dist_gap > 2.5:
-                                '''
+                                
                                 plt.plot([x[1] for x in ag1_traj],[x[2] for x in ag1_traj],'o')
                                 plt.plot([x[1] for x in ag2_traj],[x[2] for x in ag2_traj],'x')
                                 plt.plot([x[0] for x in MergeBeforeIntersection.stopline],[x[1] for x in MergeBeforeIntersection.stopline])
@@ -742,17 +746,18 @@ class ProcessResults:
                                 ax.imshow(img, extent=[538780, 538890, 4813970, 4814055])
                                 print(ag1_time_to_cross,ag2_time_to_cross)
                                 plt.show()
-                                '''
+                                
                             
                                 analytics_obj = UniWeberAnalytics('769')
                                 analytics_obj.animate_scene([[(x[1],x[2]) for x in ag1_traj],[(x[1],x[2]) for x in ag2_traj]],None)
-                            
+                            '''
+                        '''
                         else:
                             if isinstance(m_type, tuple):
                                 print(m_type[0],m_type[1],type_comb1[0],type_comb1[1],ag1_speed,ag2_speed,success, sep=",")
                             else:
                                 print(m_type,m_type,type_comb1[0],type_comb1[1],ag1_speed,ag2_speed,success, sep=",")
-                            
+                        ''' 
                             
                             
                         
@@ -778,7 +783,7 @@ class ProcessResults:
         model_types = ['auto_resp','ql1_resp','robust_resp']
         u = Utilities()
         print('****** RESULTS CSV START ********')
-        with open(os.path.join(rg_constants.RESULTS_FILES,'all_results_1'+'.csv'), mode='w') as resfile:
+        with open(os.path.join(rg_constants.RESULTS_FILES,'all_results'+'.csv'), mode='w') as resfile:
             res_writer = csv.writer(resfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             res_writer.writerow(['agent1_model_type','agent2_model_type','agent1_type','agent2_type','agent1_speed','agent2_speed','agent1_traj_length','agent2_traj_length','dist_gap'])
             succ_ct = None
@@ -872,11 +877,11 @@ class ProcessResults:
                                 strat_types[dist_gap][m_type] = 0
                             else:
                                 strat_types[dist_gap][m_type] += 1
-                            
+                            '''
                             if float(ag1_speed) > 0.8:
                                 analytics_obj = UniWeberAnalytics('769')
                                 analytics_obj.animate_scene([[(x[1],x[2]) for x in ag1_traj],[(x[1],x[2]) for x in ag2_traj]],'parking_pullout')
-                            
+                            '''
                             '''
                             plt.plot([x[1] for x in ag1_traj],[x[2] for x in ag1_traj],'o')
                             plt.plot([x[1] for x in ag2_traj],[x[2] for x in ag2_traj],'x')
@@ -1017,8 +1022,8 @@ if __name__ == '__main__':
     
     '''
     res = ProcessResults()
-    #res.visualization_only = ['1-2_1_15','1-3_1_10']
-    res.visualization_only = ['1-2_1,0_20,0']
+    #res.visualization_only = ['1-2_1_20','1-3_1_10']
+    #res.visualization_only = ['1-2_1,0_20,0']
     res.process_parking_pullout()
     
     
