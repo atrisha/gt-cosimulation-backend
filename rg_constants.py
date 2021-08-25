@@ -5,7 +5,9 @@ Created on May 12, 2021
 '''
 import constants
 import os
+import sys
 
+DATASET = None
 SCENE_TYPE = ('REAL',None)
 SCENE_OUT_PATH = 'D:\\repeated_games_data\\intersection_dataset\\scenario_files.csv' if SCENE_TYPE[0] == 'REAL' else 'D:\\repeated_games_data\\intersection_dataset\\'+SCENE_TYPE[0]+'\\'+SCENE_TYPE[1]+'\\'+'scenario_files.csv'
 FAILED_FILES_PATH = 'D:\\repeated_games_data\\intersection_dataset\\failed_scenario_files.csv' if SCENE_TYPE[0] == 'REAL' else 'D:\\repeated_games_data\\intersection_dataset\\'+SCENE_TYPE[0]+'\\'+SCENE_TYPE[1]+'\\'+'failed_scenario_files.csv'
@@ -29,11 +31,19 @@ def get_db_path(file_id = None):
     return uni_weber_dbpath
 
 def get_rg_db_path(file_id):
-    if SCENE_TYPE[0] == 'REAL':
-        return 'D:\\repeated_games_data\\intersection_dataset\\db_files\\'+file_id+'.db'
+    if DATASET == 'intersection_dataset':
+        if SCENE_TYPE[0] == 'REAL':
+            return 'D:\\repeated_games_data\\intersection_dataset\\db_files\\'+file_id+'.db'
+        else:
+            return 'D:\\repeated_games_data\\intersection_dataset\\'+SCENE_TYPE[0]+'\\'+SCENE_TYPE[1]+'\\'+'db_files\\'+file_id+'.db'
+    elif DATASET == 'inD':
+        if SCENE_TYPE[0] == 'REAL':
+            return 'D:\\repeated_games_data\\rg_ind_run\\db_files\\'+file_id+'.db'
+        else:
+            return 'D:\\repeated_games_data\\rg_ind_run\\'+SCENE_TYPE[0]+'\\'+SCENE_TYPE[1]+'\\'+'db_files\\'+file_id+'.db'
     else:
-        return 'D:\\repeated_games_data\\intersection_dataset\\'+SCENE_TYPE[0]+'\\'+SCENE_TYPE[1]+'\\'+'db_files\\'+file_id+'.db'
-    
+        sys.exit()
 
     
-ind_dataset_path = 'D:\\repeated_games_data\\ind_dataset'    
+ind_dataset_path = 'D:\\repeated_games_data\\ind_dataset'
+ind_run_path = 'D:\\repeated_games_data\\rg_ind_run\\db_files'

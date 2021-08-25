@@ -10,6 +10,8 @@ from all_utils.utils import interpolate_track_info
 from motion_planners.planning_objects import VehicleState as OneshotRepoVehicleState
 import ast
 from planners.planning_objects import VehicleState
+from shapely.ops import nearest_points
+from shapely.geometry import LineString, Point, MultiPoint
 from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints
 import math
 from operator import itemgetter
@@ -18,7 +20,8 @@ from collections import defaultdict
 import constants, rg_constants
 import all_utils
 import code_utils.utils as rg_utils
-from equilibrium.gametree_objects import UnsupportedLatticeException, UnsupportedAgentObservationException
+from equilibrium.gametree_objects import UnsupportedLatticeException, UnsupportedAgentObservationException, UnsupportedScenarioException
+import os
 
 class ScenarioDef:
     
@@ -38,7 +41,7 @@ class ScenarioDef:
         return oneshot_vehstate
     
     def setup_database(self,file_id): 
-        conn = sqlite3.connect(rg_constants.get_rg_db_path(file_id))
+        conn = sqlite3.connect(os.path.join(rg_constants.ind_run_path,file_id+'.db'))
         c = conn.cursor()
         q_string = "CREATE TABLE IF NOT EXISTS TRAJECTORIES ( `TRACK_ID` INTEGER, `X` NUMERIC, `Y` NUMERIC, `SPEED` NUMERIC, `TAN_ACC` NUMERIC, `LAT_ACC` NUMERIC, `TIME` NUMERIC, `ANGLE` NUMERIC, `ARC_LENGTH` NUMERIC )"
         c.execute(q_string)
@@ -63,6 +66,11 @@ class ScenarioDef:
         for dup in sorted(self.list_duplicates([x[0] for x in path])):
             dup_indxs += dup[1][1:]
         _newpath = [x for idx,x in enumerate(path) if idx not in dup_indxs]
+        _newpath = list(LineString(path).simplify(tolerance=.5).coords)
+        dup_indxs = []
+        for idx,pt in path:
+            if pt not in _newpath:
+                dup_indxs.append(idx)
         return _newpath,dup_indxs
     
     def get_reasonable_velocities(self,seg,direction=None):
@@ -301,12 +309,35 @@ class ScenarioDef:
             agent2_vel_pts_proc = [(self.agent2.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent2.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent2.waypoint_segments[i], self.agent2.direction) for i in np.arange(1,len(self.agent2.waypoints)-1)] + [self.get_reasonable_velocities(self.agent2.waypoint_segments[-1], self.agent2.direction)]
         
         min_distgp_indx = min(enumerate([math.hypot(x[0]-y[1], x[0]-y[1]) for x,y in zip(self.agent1.waypoints,self.agent2.waypoints)]), key=itemgetter(1))[0] 
+        if LineString(self.agent1.waypoints).intersects(LineString(self.agent2.waypoints)):
+            cross_pts = LineString(self.agent1.waypoints).intersection(LineString(self.agent2.waypoints))
+            if isinstance(cross_pts, MultiPoint):
+                cross_pts = list(cross_pts.geoms)[-1]
+            dist_to_cross_ag1 = LineString(self.agent1.waypoints).project(cross_pts)
+            dist_to_cross_ag2 = LineString(self.agent2.waypoints).project(cross_pts)
+            '''
+            plt.plot([x[0] for x in self.agent1.waypoints],[x[1] for x in self.agent1.waypoints],linestyle='-', marker='o',color='red')
+            plt.plot([x[0] for x in self.agent2.waypoints],[x[1] for x in self.agent2.waypoints],linestyle='-', marker='x',color='blue')
+            plt.show()
+            '''
+        else:
+            
+            '''
+            dist_to_cross_ag1 = (self.agent1.velocity**2)/2
+            dist_to_cross_ag2 = (self.agent2.velocity**2)/2
+            plt.plot([x[0] for x in self.agent1.waypoints],[x[1] for x in self.agent1.waypoints],linestyle='-', marker='o',color='red')
+            plt.plot([x[0] for x in self.agent2.waypoints],[x[1] for x in self.agent2.waypoints],linestyle='-', marker='x',color='blue')
+            plt.show()
+            f=1
+            '''
+            raise UnsupportedScenarioException('paths fo not cross')
         if rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['parking_pullout']:
             agent_2_time_2_stop = self.agent2.velocity if self.agent2.velocity !=0 else 2
             agent_2_dist_2_stop = (self.agent2.velocity**2)/2 
             agent2_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent2.velocity,waypoints=self.agent2.waypoints,stop_horizon_dist_sampling_range=(0,agent_2_dist_2_stop+5),stop_horizon_time_sampling_range=(0,agent_2_time_2_stop+2))
         else:
-            agent_2_dist_2_stop = math.hypot(self.agent2.waypoints[min_distgp_indx][0]-self.agent2.waypoints[0][0], self.agent2.waypoints[min_distgp_indx][1]-self.agent2.waypoints[0][1])
+            #agent_2_dist_2_stop = math.hypot(self.agent2.waypoints[min_distgp_indx][0]-self.agent2.waypoints[0][0], self.agent2.waypoints[min_distgp_indx][1]-self.agent2.waypoints[0][1])
+            agent_2_dist_2_stop = dist_to_cross_ag2
             agent_2_time_2_stop = agent_2_dist_2_stop/self.agent2.velocity if self.agent2.velocity !=0 else 2
             agent2_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent2.velocity,waypoints=self.agent2.waypoints,stop_horizon_dist_sampling_range=(agent_2_dist_2_stop-5,agent_2_dist_2_stop+5),stop_horizon_time_sampling_range=(agent_2_time_2_stop-2,agent_2_time_2_stop+2))
         agent2_traj_constr_proc = ProceedTrajectoryConstraints(waypoints=self.agent2.waypoints,waypoint_vel_sampling_range=agent2_vel_pts_proc)
@@ -318,7 +349,7 @@ class ScenarioDef:
         
         agent_1_dist_1_stop = math.hypot(self.agent1.waypoints[min_distgp_indx][0]-self.agent1.waypoints[0][0], self.agent1.waypoints[min_distgp_indx][1]-self.agent1.waypoints[0][1])
         agent_1_time_1_stop = agent_1_dist_1_stop/self.agent1.velocity if self.agent1.velocity !=0 else 2
-        agent1_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent1.velocity,waypoints=self.agent1.waypoints,stop_horizon_dist_sampling_range=(1,5),stop_horizon_time_sampling_range=(1,4))
+        agent1_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent1.velocity,waypoints=self.agent1.waypoints,stop_horizon_dist_sampling_range=(0,dist_to_cross_ag1),stop_horizon_time_sampling_range=(1,5))
         agent1_traj_constr_proc = ProceedTrajectoryConstraints(waypoints=self.agent1.waypoints,waypoint_vel_sampling_range=agent1_vel_pts_proc)
         maneuver_constraints['agent_1']['maneuvers']['wait'] = agent1_traj_constr_wait
         maneuver_constraints['agent_1']['maneuvers']['turn'] = agent1_traj_constr_proc
@@ -341,13 +372,39 @@ class SyntheticScenarioDef:
         
 class inDScenarioDef(ScenarioDef):
     
+    def get_direction(self,file_id,ag):
+        dir_map = {(30,32):{'ag1':'L_N_E','ag2':'L_S_N'},
+                              (7,17):{'ag1':'L_N_E','ag2':'L_S_N'},
+                              (2,6):{'ag1':'L_S_E','ag2':'L_W_E'}}
+        for k,v in dir_map.items():
+            if k[0] <= int(file_id) <= k[1]:
+                return v[ag]
+    
+    def get_extrapolated_pt(self,first_seg,dist_to_extrapolate):
+        #plt.plot([x[0] for x in first_seg],[x[0] for x in first_seg],'x',color='blue')
+        p1,p2 = (first_seg[1][0], first_seg[1][1]), (first_seg[0][0], first_seg[0][1])
+        a = p1
+        b = (p1[0]+dist_to_extrapolate*(p2[0]-p1[0]), p1[1]+dist_to_extrapolate*(p2[1]-p1[1]) )
+        #plt.plot([x[0] for x in [b]+first_seg],[x[0] for x in [b]+first_seg],'o',color='red')
+        #plt.show()
+        
+        entry_pos_X = [p2[0],p1[0]]
+        entry_pos_Y = [p2[1],p1[1]]
+        angle_of_centerline = math.atan2(entry_pos_Y[0]-entry_pos_Y[1],entry_pos_X[0]-entry_pos_X[1])
+        proj_pos_X = entry_pos_X[0] + dist_to_extrapolate * math.cos(angle_of_centerline)
+        proj_pos_Y = entry_pos_Y[0] + dist_to_extrapolate * math.sin(angle_of_centerline)
+        b = (proj_pos_X,proj_pos_Y)
+        dist_extended = math.hypot(b[0]-first_seg[0][0], b[1]-first_seg[0][1])
+        return b
+        
     def _two_agent_scenedef(self,agent_1_id, agent_2_id,file_id,initialize_db,start_ts,freq):
         self.freq = freq
         self.horizon = int(3/self.freq)
+        file_id = '0'+str(file_id) if int(file_id) < 10 else str(file_id)
         constants.CURRENT_FILE_ID = file_id
-        conn = sqlite3.connect(rg_constants.get_db_path())
+        conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
         c = conn.cursor()
-        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_0"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_1_id)+" AND TIME >= "+str(start_ts)+" ORDER BY TIME"
+        q_string = "select * from TRAJECTORIES_"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_1_id)+" AND TIME >= "+str(start_ts)+" ORDER BY TIME"
         c.execute(q_string)
         agent1_res = c.fetchall()
         agent1_path = [(x[1],x[2]) for idx,x in enumerate(agent1_res) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent1_res)-1, num=10)]]
@@ -355,11 +412,11 @@ class inDScenarioDef(ScenarioDef):
         agent1_path,dup_indxs = self._remove_duplicate(agent1_path)
         agent_1_path_segments = [x for idx,x in enumerate(agent_1_path_segments) if idx not in dup_indxs]
         ''' Get the track of a representative straight through vehicle to construct a path centerline '''
-        q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_0"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_2_id)+" AND TIME >= "+str(start_ts)+"  ORDER BY TIME"
+        q_string = "select * from TRAJECTORIES_"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_2_id)+" AND TIME >= "+str(start_ts)+"  ORDER BY TIME"
         c.execute(q_string)
         agent2_res = c.fetchall()
-        agent1_path_gates_dir = all_utils.utils.get_path_gates_direction(agent_track=None, agent_id=agent_1_id)
-        agent2_path_gates_dir = all_utils.utils.get_path_gates_direction(agent_track=None, agent_id=agent_2_id)
+        agent1_dir = self.get_direction(file_id, 'ag1')
+        agent2_dir = self.get_direction(file_id, 'ag2')
         if len(agent1_res)==0 or len(agent2_res)==0:
             self.time_crossed = True
         else:
@@ -370,16 +427,14 @@ class inDScenarioDef(ScenarioDef):
             agent2_path_segments = [x for idx,x in enumerate(agent2_path_segments) if idx not in dup_indxs]
             agent2_start_ts = agent2_res[0][6]
             agent1_start_ts = agent1_res[0][6]
-            agent_1_attribs = {'x':agent1_res[0][1], 'y':agent1_res[0][2], 'velocity':agent1_res[0][3]/3.6, 'waypoints':agent1_path, 'file_time':agent1_start_ts, 'id':agent_1_id, 'waypoint_segments':agent_1_path_segments, 'direction':agent1_path_gates_dir[-1]}
+            agent_1_attribs = {'x':agent1_res[0][1], 'y':agent1_res[0][2], 'velocity':agent1_res[0][3]/3.6, 'waypoints':agent1_path, 'file_time':agent1_start_ts, 'id':agent_1_id, 'waypoint_segments':agent_1_path_segments, 'direction':agent1_dir}
             if agent2_start_ts > agent1_start_ts:
-                oneshot_vehstate = self._setup_1shotrepo_state(agent2_res)
-                oneshot_vehstate.current_time = agent1_start_ts
-                interpolated_track = interpolate_track_info(veh_state = oneshot_vehstate, forward = False, backward = True, partial_track = None)
-                agent2_path = [(interpolated_track[1],interpolated_track[2])] + agent2_path
+                extr_pt = self.get_extrapolated_pt(agent2_path[0:2],(agent2_res[0][3]/3.6)*abs(agent2_start_ts-agent1_start_ts))
+                agent2_path = [extr_pt] + agent2_path
                 agent2_path_segments = [agent2_path_segments[0]] + agent2_path_segments 
-                agent_2_attribs = {'x':interpolated_track[1], 'y':interpolated_track[2], 'velocity':interpolated_track[3], 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments, 'direction':agent2_path_gates_dir[-1]}
+                agent_2_attribs = {'x':extr_pt[0], 'y':extr_pt[1], 'velocity':agent2_res[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments, 'direction':agent2_dir}
             elif agent2_start_ts == agent1_start_ts:
-                agent_2_attribs = {'x':agent2_res[0][1], 'y':agent2_res[0][2], 'velocity':agent2_res[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments, 'direction':agent2_path_gates_dir[-1]}
+                agent_2_attribs = {'x':agent2_res[0][1], 'y':agent2_res[0][2], 'velocity':agent2_res[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments, 'direction':agent2_dir}
             else:
                 agent2_res_trunc = None
                 for idx,pt in enumerate(agent2_res):
@@ -390,7 +445,7 @@ class inDScenarioDef(ScenarioDef):
                 agent2_path_segments = [x[9] for idx,x in enumerate(agent2_res_trunc) if idx in [int(y) for y in np.linspace(start=0, stop=len(agent2_res_trunc)-1, num=10)]]
                 agent2_path,dup_indxs = self._remove_duplicate(agent2_path)
                 agent2_path_segments = [x for idx,x in enumerate(agent2_path_segments) if idx not in dup_indxs]
-                agent_2_attribs = {'x':agent2_res_trunc[0][1], 'y':agent2_res_trunc[0][2], 'velocity':agent2_res_trunc[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments, 'direction':agent2_path_gates_dir[-1]}
+                agent_2_attribs = {'x':agent2_res_trunc[0][1], 'y':agent2_res_trunc[0][2], 'velocity':agent2_res_trunc[0][3]/3.6, 'waypoints':agent2_path, 'file_time':agent1_start_ts, 'id':agent_2_id, 'waypoint_segments':agent2_path_segments, 'direction':agent2_dir}
             self.agent1 = VehicleState(agent_1_attribs)
             self.agent2 = VehicleState(agent_2_attribs)
             file_id = constants.CURRENT_FILE_ID+'_'+str(agent_1_id)+'_'+str(agent_2_id)+'_'+str(agent1_start_ts).replace('.',',')

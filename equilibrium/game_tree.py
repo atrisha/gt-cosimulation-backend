@@ -569,7 +569,7 @@ class Node:
     tree_size = 0
     
     def print_Node(self,last_decision_level,results):
-        node_result = {'uspe':[],'mspe':[],'qlk':{'ag1':[],'ag2':[]},'ql0':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
+        node_result = {'uspe':[],'mspe':[],'ql0':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
         util_residuals = {'uspe':[],'mspe':[],'qlk':{'ag1':[],'ag2':[]},'ag1_ac':None,'ag1_nac':None,'ag2_ac':None,'ag2_nac':None,'ag1_robust':[],'ag2_robust':[],'ag1_auto_resp':[],'ag2_auto_resp':[]}
         if self.level == last_decision_level:
             if hasattr(self, 'emp_path') and self.emp_path:
@@ -662,7 +662,8 @@ class Node:
                             
                 if hasattr(self.parent, 'all_ql1_resppnse'):
                     for prec in self.parent.all_ql1_resppnse.keys():
-                        node_result['qlk'] = dict()
+                        if 'qlk' not in node_result:
+                            node_result['qlk'] = dict()
                         node_result['qlk'][prec] = {'ag1':[],'ag2':[]}
                         ag1_resp = self.parent.all_ql1_resppnse[prec]['response']['agent_1'][:,0]
                         for i,resp in enumerate(ag1_resp):
@@ -769,7 +770,8 @@ class Node:
                                     node_result['ag2_robust'].append(i) 
                         if hasattr(self.parent, 'all_ql1_resppnse'):
                             for prec in self.parent.all_ql1_resppnse.keys():
-                                node_result['qlk'] = dict()
+                                if 'qlk' not in node_result:
+                                    node_result['qlk'] = dict()
                                 node_result['qlk'][prec] = {'ag1':[],'ag2':[]}
                                 ag1_resp = self.parent.all_ql1_resppnse[prec]['response']['agent_1'][:,0]
                                 for i,resp in enumerate(ag1_resp):
@@ -1272,7 +1274,7 @@ def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
 
 def run_one_ind_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
     rg_constants.SCENE_TYPE = ('REAL',None)
-    
+    rg_constants.DATASET = 'inD'
     scene_def = inDScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts,freq=freq)
     maneuver_constraints = scene_def.setup_trajectory_constraints()
     tree_builder = TreeBuilder(freq,initialize_db)
@@ -1298,15 +1300,19 @@ def run_one_ind_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,fr
     start_time = time.time()
     gt.solve(RobustResponse(context))
     print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
-    start_time = time.time()
+    tart_time = time.time()
+    context.precision_parm = 0.5
     gt.solve(Ql1Model(context))
-    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
-    
+    print('solving qlk=1(0.5). strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(Ql0Model(context))
+    print('solving qlk=0. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                
     gt.scene_def = scene_def
     assign_emp_nodes(gt,gt.scene_def)
     gt.print_tree()
     #plot_velocity_profiles(gt,scene_def,freq)
-    gt.animate('mspe')
+    #gt.animate('mspe')
     f=1
 
 
@@ -1316,7 +1322,7 @@ def animate_one_scenario(gt_file_id):
                 
 
 def run_all_scenarios():
-    run_all_wmad_scenarios()
+    run_all_ind_scenarios()
     
 def run_all_wmad_scenarios():
     freq = .5
@@ -1326,6 +1332,7 @@ def run_all_wmad_scenarios():
     failed_files = []
     scene_type = sys.argv[2]
     rg_constants.SCENE_TYPE = ('REAL',None)
+    rg_constants.DATASET = 'intersection_dataset'
     #inp_file_ids = [769,770,771,775,776]
     with open(rg_constants.FAILED_FILES_PATH,newline='\n') as csv_file:
         sc_reader = csv.reader(csv_file, delimiter=',')
@@ -1434,7 +1441,106 @@ def run_all_wmad_scenarios():
             
             
 
-
+def run_all_ind_scenarios():
+    freq = .5
+    initialize_db = True
+    initialize_files = False
+    rerun_failed_files = False
+    failed_files = []
+    rg_constants.SCENE_TYPE = ('REAL',None)
+    rg_constants.DATASET = 'inD'
+    #inp_file_ids = [769,770,771,775,776]
+            
+    with open('D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files.csv',newline='\n') as csv_file:
+        sc_reader = csv.reader(csv_file, delimiter=',')
+        line_count = 0
+        for row in sc_reader:
+            if line_count == 0:
+                line_count += 1
+                continue
+            #inp_file_ids = [x for x in np.arange(6,18)] + [x for x in np.arange(30,33)] 
+            inp_file_ids = ast.literal_eval(sys.argv[1])
+            dbfile_id = int(row[0])
+            if dbfile_id not in inp_file_ids:
+                continue
+            dbfile_id = str(dbfile_id)
+            agent1_id = int(row[1])
+            agent2_id = int(row[2])
+            start_ts = float(row[3])/25
+            print('processing',dbfile_id,line_count+1,agent1_id,agent2_id)
+            try:
+                if not initialize_files:
+                    if os.path.isfile(os.path.join('D:\\repeated_games_data\\rg_ind_run\\game_trees','_'.join(row).replace('.',',')+'.gt')):
+                        line_count += 1
+                        print('row',row,'processed...continuing')
+                        continue
+                scene_def = inDScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts,freq=freq)
+                if scene_def.time_crossed:
+                    continue
+                maneuver_constraints = scene_def.setup_trajectory_constraints()
+                if initialize_db:
+                    tree_builder = TreeBuilder(freq,initialize_db)
+                    tree_builder.build_complete_tree(maneuver_constraints)
+                
+                file_id = constants.CURRENT_FILE_ID+'_'+str(maneuver_constraints['agent_1']['agent_state'].id)+'_'+str(maneuver_constraints['agent_2']['agent_state'].id)+'_'+str(maneuver_constraints['agent_1']['agent_state'].file_time).replace('.', ',')
+                gt = GameTree(file_id,freq)
+                gt.build_tree(maneuver_constraints)
+                type(gt.root).progress_ctr = 0
+                type(gt.root).tree_size = gt.root.size(gt.last_decision_level)
+                m = MinDistanceGapModel(file_id,freq)
+                m.build_model()   
+                context = RunContext()
+                manv_map = {'agent_1':{'wait':'wait','proceed':'turn'}, 'agent_2':{'wait':'wait','proceed':'track_speed'}}
+                context.gt_obj = gt
+                context.set_attrib({'manv_map':manv_map,'acc_dynamic':True,'non_acc_dynamic':True,'maneuver_constraints':maneuver_constraints})
+                drassign_obj = AssignDistRanges()
+                drassign_obj.assign_distranges(node=gt.root, last_decision_level=gt.last_decision_level, model=m)
+                start_time = time.time()
+                eq_obj = SatisficingEquilibria(context)
+                gt.solve(eq_obj)
+                print('solving tree....DONE','(%s secs)' % (time.time() - start_time),)
+                start_time = time.time()
+                gt.solve(RobustResponse(context))
+                print('solving robust. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                start_time = time.time()
+                context.precision_parm = 1
+                gt.solve(Ql1Model(context))
+                print('solving qlk=1(0.8). strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                start_time = time.time()
+                context.precision_parm = 0.5
+                gt.solve(Ql1Model(context))
+                print('solving qlk=1(0.5). strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                start_time = time.time()
+                gt.solve(Ql0Model(context))
+                print('solving qlk=0. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+                
+                gt.scene_def = scene_def
+                gt.maneuver_constraints = None
+                pickle_dump_to_dir(os.path.join('D:\\repeated_games_data\\rg_ind_run\\game_trees','_'.join(row).replace('.',',')+'.gt'), gt)
+                #pickle_dump_to_dir(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.scenedef'), scene_def)
+                
+            except Exception as e:
+                    # Get current system exception
+                ex_type, ex_value, ex_traceback = sys.exc_info()
+            
+                # Extract unformatter stack traces as tuples
+                trace_back = traceback.extract_tb(ex_traceback)
+            
+                # Format stacktrace
+                stack_trace = list()
+            
+                for trace in trace_back:
+                    stack_trace.append("File : %s , Line : %d, Func.Name : %s, Message : %s" % (trace[0], trace[1], trace[2], trace[3]))
+                log.warn('caught and recorded exception in file')
+                with open('D:\\repeated_games_data\\rg_ind_run\\failed_scenarios.csv', mode='a') as failed_file:
+                    fail_writer = csv.writer(failed_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                    msg = row + [str(ex_type.__name__),str(ex_value),str(stack_trace)]
+                    fail_writer.writerow(msg)
+                '''
+                if not isinstance(e, UnsupportedLatticeException) and not isinstance(e, UnsupportedAgentObservationException) :
+                    raise
+                '''
+            line_count += 1
     
 def assign_emp_nodes(gt,scene_def):
     gt.root.emp_path = True
@@ -1963,10 +2069,11 @@ if __name__ == '__main__':
     #rg_constants.SCENE_TYPE = ('synthetic','test')
     #rg_constants.CURRENT_RG_FILE_ID = '769_44_49_34,1341'
     #run_one_scenario(dbfile_id='770', agent1_id=186, agent2_id=159, start_ts=178.511667, initialize_db=True, freq=0.5)
-    run_one_ind_scenario(dbfile_id='2', agent1_id=30, agent2_id=31, start_ts=None, initialize_db=True, freq=0.5)
+    run_one_ind_scenario(dbfile_id='2', agent1_id=92, agent2_id=93, start_ts=4276/25, initialize_db=True, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
     #plot_all_results()
     #run_all_scenarios()
     #results_all_scenarios()
+    #main()
     f=1
     

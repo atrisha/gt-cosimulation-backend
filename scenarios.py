@@ -441,7 +441,7 @@ class inD_Scenarios:
     
     def right_turn_scenarios(self):
         track_meta_map = dict()
-        lt_focus_regions, st_focus_regions = parse_scenes(30,['ln_n_1']), parse_scenes(30,['ln_s_2'])
+        lt_focus_regions, st_focus_regions = parse_scenes(2,['ln_s_4']), parse_scenes(2,['ln_w_3'])
         
         tot = 0
         for scene_fileid in ['0'+str(x) if x < 10 else str(x) for x in  np.arange(self.init_scenefile,self.file_init_end[self.init_scenefile])]:
@@ -475,14 +475,15 @@ class inD_Scenarios:
                         f=1
                     if row['trackId'] in track_meta_map:
                         for lt_region in lt_focus_regions:
+                            pt = Point(float(row['xCenter']) + xUtmOrigin, float(row['yCenter']) + yUtmOrigin)
                             if Point(float(row['xCenter']) + xUtmOrigin, float(row['yCenter']) + yUtmOrigin).within(lt_region):
                                 if row['trackId'] not in vehicles[scene_fileid]['lt']:
-                                    vehicles[scene_fileid]['lt'][row['trackId']] = track_meta_map[row['trackId']] 
+                                    vehicles[scene_fileid]['lt'][row['trackId']] = (track_meta_map[row['trackId']], pt, row['frame']) 
                         for st_region in st_focus_regions:
                             pt = Point(float(row['xCenter']) + xUtmOrigin, float(row['yCenter']) + yUtmOrigin)
                             if pt.within(st_region):
                                 if row['trackId'] not in vehicles[scene_fileid]['st']:
-                                    vehicles[scene_fileid]['st'][row['trackId']] = (track_meta_map[row['trackId']], pt) 
+                                    vehicles[scene_fileid]['st'][row['trackId']] = (track_meta_map[row['trackId']], pt, row['frame']) 
                                  
                     line_count += 1
         
@@ -491,7 +492,7 @@ class inD_Scenarios:
             for k,v in vehicles.items():
                 for k1,v1 in v['lt'].items():
                     for k2,v2 in v['st'].items():
-                        if v1[0] <= v2[0][0] <= v1[1]:
+                        if float(v1[0][0]) <= float(v2[0][0]) <= float(v1[0][1]):
                             if k not in scene_map:
                                 scene_map[k] = dict()
                                 
@@ -503,22 +504,22 @@ class inD_Scenarios:
                                 if len(current_vehs) > 0:
                                     if min([LineString([v2[1],x]).length for x in current_vehs]) > 20:
                                         scene_map[k][k1][k2] = OrderedDict()
-                                        scene_map[k][k1][k2] = (v1,v2[0],v2[1],min([LineString([v2[1],x]).length for x in current_vehs])) 
+                                        scene_map[k][k1][k2] = (v1,v2[0],v2[1],v1[2]) 
                                         track_info[k2] = dict()
                                         tot += 1
                                 else:
                                     scene_map[k][k1][k2] = OrderedDict()
-                                    scene_map[k][k1][k2] = (v1,v2[0],v2[1],None)
+                                    scene_map[k][k1][k2] = (v1,v2[0],v2[1],v1[2])
                                     track_info[k2] = dict() 
                                     tot += 1
                                 
             for k,v in scene_map.items():
                 for k1,v1 in v.items():
                     for k2,v2 in v1.items():
-                        print(k,k1,k2)
+                        print(k,k1,k2,v2[3])
         print('total',tot)
         
 if __name__ == '__main__':
-    sc = inD_Scenarios(30,[])
+    sc = inD_Scenarios(2,[])
     #sc.right_turn_scenarios()
     sc.load_tracks()
