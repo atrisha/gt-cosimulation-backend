@@ -41,7 +41,10 @@ class ScenarioDef:
         return oneshot_vehstate
     
     def setup_database(self,file_id): 
-        conn = sqlite3.connect(os.path.join(rg_constants.ind_run_path,file_id+'.db'))
+        if rg_constants.DATASET == 'intersection_dataset':
+            conn = sqlite3.connect(rg_constants.get_rg_db_path(file_id))
+        else:
+            conn = sqlite3.connect(os.path.join(rg_constants.ind_run_path,file_id+'.db'))
         c = conn.cursor()
         q_string = "CREATE TABLE IF NOT EXISTS TRAJECTORIES ( `TRACK_ID` INTEGER, `X` NUMERIC, `Y` NUMERIC, `SPEED` NUMERIC, `TAN_ACC` NUMERIC, `LAT_ACC` NUMERIC, `TIME` NUMERIC, `ANGLE` NUMERIC, `ARC_LENGTH` NUMERIC )"
         c.execute(q_string)
@@ -165,7 +168,7 @@ class ScenarioDef:
         self.freq = freq
         self.horizon = int(3/self.freq)
         constants.CURRENT_FILE_ID = file_id
-        conn = sqlite3.connect(rg_constants.get_db_path())
+        conn = sqlite3.connect(rg_constants.get_db_path(file_id))
         c = conn.cursor()
         q_string = "select * from TRAJECTORIES_0"+constants.CURRENT_FILE_ID+" T INNER JOIN TRAJECTORIES_0"+constants.CURRENT_FILE_ID+"_EXT E using(track_id,time) WHERE TRACK_ID="+str(agent_1_id)+" AND TIME >= "+str(start_ts)+" ORDER BY TIME"
         c.execute(q_string)
@@ -322,15 +325,16 @@ class ScenarioDef:
             '''
         else:
             
-            '''
+            
             dist_to_cross_ag1 = (self.agent1.velocity**2)/2
             dist_to_cross_ag2 = (self.agent2.velocity**2)/2
+            '''
             plt.plot([x[0] for x in self.agent1.waypoints],[x[1] for x in self.agent1.waypoints],linestyle='-', marker='o',color='red')
             plt.plot([x[0] for x in self.agent2.waypoints],[x[1] for x in self.agent2.waypoints],linestyle='-', marker='x',color='blue')
             plt.show()
             f=1
             '''
-            raise UnsupportedScenarioException('paths fo not cross')
+            #raise UnsupportedScenarioException('paths fo not cross')
         if rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['parking_pullout']:
             agent_2_time_2_stop = self.agent2.velocity if self.agent2.velocity !=0 else 2
             agent_2_dist_2_stop = (self.agent2.velocity**2)/2 
@@ -339,7 +343,7 @@ class ScenarioDef:
             #agent_2_dist_2_stop = math.hypot(self.agent2.waypoints[min_distgp_indx][0]-self.agent2.waypoints[0][0], self.agent2.waypoints[min_distgp_indx][1]-self.agent2.waypoints[0][1])
             agent_2_dist_2_stop = dist_to_cross_ag2
             agent_2_time_2_stop = agent_2_dist_2_stop/self.agent2.velocity if self.agent2.velocity !=0 else 2
-            agent2_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent2.velocity,waypoints=self.agent2.waypoints,stop_horizon_dist_sampling_range=(agent_2_dist_2_stop-5,agent_2_dist_2_stop+5),stop_horizon_time_sampling_range=(agent_2_time_2_stop-2,agent_2_time_2_stop+2))
+            agent2_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent2.velocity,waypoints=self.agent2.waypoints,stop_horizon_dist_sampling_range=(agent_2_dist_2_stop-5,agent_2_dist_2_stop),stop_horizon_time_sampling_range=(agent_2_time_2_stop-2,agent_2_time_2_stop+2))
         agent2_traj_constr_proc = ProceedTrajectoryConstraints(waypoints=self.agent2.waypoints,waypoint_vel_sampling_range=agent2_vel_pts_proc)
         maneuver_constraints['agent_2']['maneuvers']['wait'] = agent2_traj_constr_wait
         if 'track_speed' in maneuver_constraints['agent_2']['maneuvers']:

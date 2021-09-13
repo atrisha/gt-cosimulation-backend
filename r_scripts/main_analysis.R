@@ -40,6 +40,7 @@ td$value <- as.numeric(td$value)
 
 type_var_df <- data.frame(model=factor(),mean=double(),sd=double())
 names(type_var_df)<-c("model","mean","sd")
+td2 <- ddply(td, .(agent1_model_type,type_comb), function(td) c(count=nrow(td)))
 td2$agent1_model_type <- as.factor(td2$agent1_model_type)
 for (m in levels(td2$agent1_model_type)) {
   x <- data.frame(m,mean(td2[td2$agent1_model_type==m,]$count),sd(td2[td2$agent1_model_type==m,]$count))
@@ -48,6 +49,9 @@ for (m in levels(td2$agent1_model_type)) {
 }
 ggplot(type_var_df, aes(model, mean)) + geom_point() + geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd))
 ggplot(type_var_df, aes(x=mean, y=sd)) + geom_point(aes(shape=model), size=4)+  labs(x='mean success count across agent types',y='SD of success count across agent types')
+type_var_df$sd <- type_var_df$sd/nrow(td)
+type_var_df$sd <- type_var_df$sd/nrow(td)
+ggplot(type_var_df, aes(x=mean, y=sd)) + geom_point(aes(shape=model), size=4) + geom_errorbarh(aes(xmin=mean-.001, xmax=mean+.001)) +  labs(x='mean success count across agent types',y='SD of success count across agent types')
 
 
 td <- mbi_dataframe[mbi_dataframe$dist_gap  > 2.5, ]

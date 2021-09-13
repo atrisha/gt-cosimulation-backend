@@ -18,6 +18,7 @@ from maps.States import ScenarioDef
 from equilibrium.game_tree import Actions
 from visualizer.visualizer import plot_traffic_regions
 from rg_visualizer import UniWeberAnalytics
+import all_utils
 
 
 WAIT_ACTIONS = ['yield-to-merging','wait_for_lead_to_cross','wait-for-oncoming','decelerate-to-stop','wait-on-red','wait-for-pedestrian']
@@ -320,7 +321,14 @@ class TestScenario():
         # Uncomment this set of waypoint and wapoint segments to see that removing 'exec-turn_e' allows this to work
         # agent_waypoints = [(538893.3, 4814021.84), (538893.36, 4814027.04), (538872.38, 4814030.39), (538856.54, 4814022.62)]
         # agent_waypoint_segments = ['ln_e_1', 'ln_e_1', 'ln_e_1', 'ln_e_1']
-        scene_def = SyntheticScenarioDef(141, occluding_vehicle_initial_speed, agent_waypoints, agent_waypoint_segments, 'L_E_S', 782, initialize_db, 0, freq)
+        scene_def = SyntheticScenarioDef(75, occluding_vehicle_initial_speed, agent_waypoints, agent_waypoint_segments, 'L_E_S', 782, initialize_db, 0, freq)
+        constants.CURRENT_FILE_ID = '769'
+        vs = all_utils.utils.setup_vehicle_state(124, 110.11)
+        p,g,d = all_utils.utils.get_path_gates_direction(None,124)
+        vs.set_gates(g)
+        gate_crossing_times = all_utils.utils.gate_crossing_times(vs)
+        vs.set_gate_crossing_times(gate_crossing_times)
+        r = all_utils.utils.get_relevant_agents(vs)
         ag_obj = scene_def.agent
         initialize_db = False
         freq = 0.5

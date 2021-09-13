@@ -16,6 +16,7 @@ import rg_constants
 from shapely.geometry import LineString, Polygon, Point
 import os
 from maps.parse_inD import parse_scenes
+from os import listdir
 import copy
 
 def right_turn_interaction_scenarios():
@@ -147,6 +148,9 @@ def can_exclude(file_id,agent_id,task,direction,curr_time):
                 'L_E_W':(131,63),
                 'L_S_W':(131,63),
                 'L_W_N':(73,73),
+                'L_N_E':(34,132),
+                'L_S_N':(73,73),
+                'L_E_S':(130,18)
                 }
     if not excl:
         q_string = "select * FROM GATE_CROSSING_EVENTS WHERE GATE_CROSSING_EVENTS.GATE_ID="+str(gate_map[direction][0])+" OR GATE_CROSSING_EVENTS.GATE_ID="+str(gate_map[direction][1])+" ORDER BY TIME"
@@ -233,8 +237,8 @@ def left_turn_interaction_scenarios():
                                                     ra_ex_time = exit_lane_entry_time[agent_entries[last_index][1]]
                                             else:
                                                 ra_ex_time = entry_exit_times[stag[0]][0]-2
-                                            agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'se'))
-                                            print((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'se'))  
+                                            agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'sw'))
+                                            print((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'sw'))  
                 elif ((rtag[1] == 'prep-turn_w' and el_ctr['exec-turn_w']==0) or \
                     (rtag[1] == 'exec-turn_w' and el_ctr['ln_n_-2']==0 and el_ctr['ln_n_-1']==0) or \
                     (rtag[1] == 'ln_w_1' and el_ctr['prep-turn_w']==0 and el_ctr['exec-turn_w']==0) or\
@@ -262,6 +266,60 @@ def left_turn_interaction_scenarios():
                                                 ra_ex_time = entry_exit_times[stag[0]][0]-2
                                             agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'wn'))
                                             print((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'wn'))
+                elif ((rtag[1] == 'prep-turn_n' and el_ctr['exec-turn_n']==0) or \
+                    (rtag[1] == 'exec-turn_n' and el_ctr['ln_e_-2']==0 and el_ctr['ln_e_-1']==0) or \
+                    (rtag[1] == 'ln_n_1' and el_ctr['prep-turn_n']==0 and el_ctr['exec-turn_n']==0) or\
+                    (rtag[1] == 'ln_e_-1' and el_ctr['ln_e_-1']==1) or (rtag[1] == 'ln_e_-2' and el_ctr['ln_e_-2']==1)):
+                    if not can_exclude(file_id, rtag[0],'lt','L_N_E', k):
+                        for stag in scenario_dict[k]:
+                            #vs = utils.setup_vehicle_state(rtag[0], k)
+                            #ra = utils.get_relevant_pedestrians(vs, pedestrian_info)
+                            if((stag[1] == 'ln_s_3' and el_ctr['l_s_n_r']==0 ) or \
+                                (stag[1] == 'l_s_n_r' and el_ctr['ln_n_-2']==0) or \
+                                (stag[1] == 'ln_s_2' and el_ctr['l_s_n_l']==0 ) or \
+                                (stag[1] == 'l_s_n_l' and el_ctr['ln_n_-1']==0)):
+                                    if rtag[0]==14 and (stag[0]==6 or stag[0]==4 or stag[0]==12):
+                                        f=1
+                                    if not can_exclude(file_id, stag[0],'st','L_S_N', k):
+                                        if (rtag[0],stag[0]) not in [(x[0],x[1]) for x in agent_entries]:
+                                            if rtag[0] in [x[0] for x in agent_entries]:
+                                                _l = [x[0] for x in agent_entries]
+                                                last_index = len(_l) - 1 - _l[::-1].index(rtag[0])
+                                                if agent_entries[last_index][1] not in exit_lane_entry_time:
+                                                    continue
+                                                else:
+                                                    ra_ex_time = exit_lane_entry_time[agent_entries[last_index][1]]
+                                            else:
+                                                ra_ex_time = entry_exit_times[stag[0]][0]-2
+                                            agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'ne'))
+                                            print((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'ne'))
+                elif ((rtag[1] == 'prep-turn_e' and el_ctr['exec-turn_e']==0) or \
+                    (rtag[1] == 'exec-turn_e' and el_ctr['ln_s_-2']==0 and el_ctr['ln_s_-1']==0) or \
+                    (rtag[1] == 'ln_e_1' and el_ctr['prep-turn_e']==0 and el_ctr['exec-turn_e']==0) or\
+                    (rtag[1] == 'ln_s_-1' and el_ctr['ln_s_-1']==1) or (rtag[1] == 'ln_s_-2' and el_ctr['ln_s_-2']==1)):
+                    if not can_exclude(file_id, rtag[0],'lt','L_E_S', k):
+                        for stag in scenario_dict[k]:
+                            #vs = utils.setup_vehicle_state(rtag[0], k)
+                            #ra = utils.get_relevant_pedestrians(vs, pedestrian_info)
+                            if((stag[1] == 'ln_w_3' and el_ctr['l_w_e_r']==0 ) or \
+                                (stag[1] == 'l_w_e_r' and el_ctr['ln_e_-2']==0) or \
+                                (stag[1] == 'ln_w_2' and el_ctr['l_w_e_l']==0 ) or \
+                                (stag[1] == 'l_w_e_l' and el_ctr['ln_e_-1']==0)):
+                                    if rtag[0]==14 and (stag[0]==6 or stag[0]==4 or stag[0]==12):
+                                        f=1
+                                    if not can_exclude(file_id, stag[0],'st','L_W_E', k):
+                                        if (rtag[0],stag[0]) not in [(x[0],x[1]) for x in agent_entries]:
+                                            if rtag[0] in [x[0] for x in agent_entries]:
+                                                _l = [x[0] for x in agent_entries]
+                                                last_index = len(_l) - 1 - _l[::-1].index(rtag[0])
+                                                if agent_entries[last_index][1] not in exit_lane_entry_time:
+                                                    continue
+                                                else:
+                                                    ra_ex_time = exit_lane_entry_time[agent_entries[last_index][1]]
+                                            else:
+                                                ra_ex_time = entry_exit_times[stag[0]][0]-2
+                                            agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'es'))
+                                            print((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'es'))
         #for entr in agent_entries:
         #    print(entr)
         conn.close()
@@ -274,8 +332,171 @@ def left_turn_interaction_scenarios():
     print('grand total',tot)
     
     
-
+def left_turn_interaction_inD_scenarios():
+    tot = 0
+    dbfileids = [x for x in np.arange(2,18)] + [x for x in np.arange(30,33)]
+    dbfileids = [str(x) if x >=10 else '0'+str(x) for x in dbfileids] 
+    for file_id in dbfileids:
+        constants.CURRENT_FILE_ID = file_id
+        conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
+        c = conn.cursor()
+        q_string = "select * from v_TIMES"
+        c.execute(q_string)
+        res = c.fetchall()
+        entry_exit_times = {row[0]:(row[1],row[2]) for row in res}
+        q_string = "select * from TRAJECTORIES_"+str(file_id)+"_EXT WHERE ASSIGNED_SEGMENT IN ('ln_s_-2' ,'ln_s_-1','ln_w_-2' ,'ln_w_-1','ln_n_-2' ,'ln_n_-1') ORDER BY TRACK_ID,TIME"
+        c.execute(q_string)
+        res = c.fetchall()
+        exit_lane_entry_time =  dict()
+        for row in res:
+            if row[0] not in exit_lane_entry_time:
+                exit_lane_entry_time[row[0]] = row[1]
+        
+        
+        q_string = "SELECT * from TRAJECTORIES_"+str(file_id)+"_EXT ORDER BY TIME"
+        c.execute(q_string)
+        res = c.fetchall()
+        scenario_dict = OrderedDict()
+        ct,N = 0,len(res)
+        print('processing',file_id)
+        for row in res:
+            ct += 1
+            #print(file_id,ct,'/',N)
+            if row[1] not in scenario_dict:
+                scenario_dict[row[1]] = [(row[0],row[2])]
+            else:
+                if row[0] not in [x[0] for x in scenario_dict[row[1]]]:
+                    scenario_dict[row[1]].append((row[0],row[2]))
+        agent_entries = []
+        
+        #print(scenario_dict.keys())
+        for k in list(scenario_dict.keys()):
+            if k==110.7106:
+                _e = scenario_dict[k]
+                f=1
+            #pedestrian_info = utils.setup_pedestrian_info(k)
+            el_ctr = Counter([x[1] for x in scenario_dict[k]])
+            #print(k)
+            for rtag in scenario_dict[k]:
+                if ((rtag[1] == 'prep-turn_n' and el_ctr['prep-turn_n']==1 and el_ctr['exec-turn_n']==0) or \
+                        (rtag[1] == 'exec-turn_n' and el_ctr['ln_s_-2']==0 and el_ctr['ln_s_-1']==0) or \
+                        (rtag[1] == 'ln_n_1' and el_ctr['ln_n_1'] == 1 and el_ctr['prep-turn_n']==0 and el_ctr['exec-turn_n']==0) or\
+                        (rtag[1] == 'ln_s_-1' and el_ctr['ln_s_-1']==1) or (rtag[1] == 'ln_s_-2' and el_ctr['ln_s_-2']==1)):
+                        for stag in scenario_dict[k]:
+                            #vs = utils.setup_vehicle_state(rtag[0], k)
+                            #ra = utils.get_relevant_pedestrians(vs, pedestrian_info)
+                            if((stag[1] == 'ln_s_3' and el_ctr['l_s_n_r']==0 ) or \
+                                (stag[1] == 'l_s_n_r' and el_ctr['ln_n_-2']==0) or \
+                                (stag[1] == 'ln_s_2' and el_ctr['l_s_n_l']==0 ) or \
+                                (stag[1] == 'l_s_n_l' and el_ctr['ln_n_-1']==0)):
+                                    '''
+                                    (stag[1] == 'ln_n_2' and el_ctr['ln_n_3']==0 and el_ctr['l_n_s_l']==0 and el_ctr['l_n_s_r']==0 and el_ctr['ln_s_-2']==0 and el_ctr['ln_s_-1']==0) or \
+                                    (stag[1] == 'l_n_s_l' and el_ctr['l_n_s_r']==0 and el_ctr['ln_s_-2']==0 and el_ctr['ln_s_-1']==0))
+                                    '''
+                                    if (rtag[0],stag[0]) not in [(x[0],x[1]) for x in agent_entries]:
+                                        if rtag[0] in [x[0] for x in agent_entries]:
+                                            _l = [x[0] for x in agent_entries]
+                                            last_index = len(_l) - 1 - _l[::-1].index(rtag[0])
+                                            if agent_entries[last_index][1] not in exit_lane_entry_time:
+                                                continue
+                                            else:
+                                                ra_ex_time = exit_lane_entry_time[agent_entries[last_index][1]]
+                                        else:
+                                            ra_ex_time = entry_exit_times[stag[0]][0]-2
+                                        agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'se'))
+                                        print((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'se'))  
+                
+        #for entr in agent_entries:
+        #    print(entr)
+        conn.close()
+        print('Total',file_id, len(agent_entries))
+        tot += len(agent_entries)
+        with open('D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files.csv', mode='a') as scene_file:
+            sc_writer = csv.writer(scene_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            for entr in agent_entries:
+                sc_writer.writerow([file_id,entr[0],entr[1],entr[2]])
+    print('grand total',tot)
     
+def right_turn_interaction_inD_scenarios():
+    tot = 0
+    dbfileids = [x for x in np.arange(2,18)] + [x for x in np.arange(30,33)]
+    dbfileids = [str(x) if x >=10 else '0'+str(x) for x in dbfileids] 
+    for file_id in dbfileids:
+        constants.CURRENT_FILE_ID = file_id
+        conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
+        c = conn.cursor()
+        q_string = "select * from v_TIMES"
+        c.execute(q_string)
+        res = c.fetchall()
+        entry_exit_times = {row[0]:(row[1],row[2]) for row in res}
+        q_string = "select * from TRAJECTORIES_"+str(file_id)+"_EXT WHERE ASSIGNED_SEGMENT IN ('ln_s_-2' ,'ln_s_-1','ln_e_-2' ,'ln_e_-1') ORDER BY TRACK_ID,TIME"
+        c.execute(q_string)
+        res = c.fetchall()
+        exit_lane_entry_time =  dict()
+        for row in res:
+            if row[0] not in exit_lane_entry_time:
+                exit_lane_entry_time[row[0]] = row[1]
+        
+        q_string = "SELECT * from TRAJECTORIES_"+str(file_id)+"_EXT ORDER BY TIME"
+        c.execute(q_string)
+        res = c.fetchall()
+        scenario_dict = OrderedDict()
+        ct,N = 0,len(res)
+        print('processing',file_id)
+        for row in res:
+            ct += 1
+            #print(file_id,ct,'/',N)
+            if row[1] not in scenario_dict:
+                scenario_dict[row[1]] = [(row[0],row[2])]
+            else:
+                if row[0] not in [x[0] for x in scenario_dict[row[1]]]:
+                    scenario_dict[row[1]].append((row[0],row[2]))
+        agent_entries = []
+        
+        #print(scenario_dict.keys())
+        for k in list(scenario_dict.keys()):
+            if k==110.7106:
+                _e = scenario_dict[k]
+                f=1
+            #pedestrian_info = utils.setup_pedestrian_info(k)
+            el_ctr = Counter([x[1] for x in scenario_dict[k]])
+            #print(k)
+            for rtag in scenario_dict[k]:
+                if ((rtag[1] == 'rt_prep-turn_s' and el_ctr['rt_exec-turn_s']==0 and el_ctr['ln_e_-2']==0) or \
+                    (rtag[1] == 'rt_exec-turn_s' and el_ctr['ln_e_-2']==0) or \
+                    (rtag[1] == 'ln_s_4' and el_ctr['rt_prep-turn_s']==0 and el_ctr['rt_exec-turn_s']==0 and el_ctr['ln_e_-2']==0)):
+                    for stag in scenario_dict[k]:
+                        #vs = utils.setup_vehicle_state(rtag[0], k)
+                        #ra = utils.get_relevant_pedestrians(vs, pedestrian_info)
+                        if((stag[1] == 'ln_w_3' and el_ctr['l_w_e_r']==0 and el_ctr['ln_e_-2']==0) or \
+                            (stag[1] == 'l_w_e_r' and el_ctr['ln_e_-2']==0)):
+                                '''
+                                (stag[1] == 'ln_n_2' and el_ctr['ln_n_3']==0 and el_ctr['l_n_s_l']==0 and el_ctr['l_n_s_r']==0 and el_ctr['ln_s_-2']==0 and el_ctr['ln_s_-1']==0) or \
+                                (stag[1] == 'l_n_s_l' and el_ctr['l_n_s_r']==0 and el_ctr['ln_s_-2']==0 and el_ctr['ln_s_-1']==0))
+                                '''
+                                if (rtag[0],stag[0]) not in [(x[0],x[1]) for x in agent_entries]:
+                                    if rtag[0] in [x[0] for x in agent_entries]:
+                                        _l = [x[0] for x in agent_entries]
+                                        last_index = len(_l) - 1 - _l[::-1].index(rtag[0])
+                                        if agent_entries[last_index][1] not in exit_lane_entry_time:
+                                            continue
+                                        else:
+                                            ra_ex_time = exit_lane_entry_time[agent_entries[last_index][1]]
+                                    else:
+                                        ra_ex_time = entry_exit_times[stag[0]][0]-2
+                                    agent_entries.append((rtag[0],stag[0],max(entry_exit_times[rtag[0]][0],ra_ex_time),'se'))
+                                    #print((rtag[0],stag[0],k,'rt_st_s_e'))                
+        #for entr in agent_entries:
+        #    print(entr)
+        conn.close()
+        with open('D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files.csv', mode='a') as scene_file:
+            sc_writer = csv.writer(scene_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            for entr in agent_entries:
+                sc_writer.writerow([file_id,entr[0],entr[1],entr[2]])
+        print('Total',file_id, len(agent_entries))
+        tot += len(agent_entries)
+        
+    print('grand total',tot)
 def pedestrian_interaction_scenarios():
     tot = 0
     all_scenes = []
@@ -318,6 +539,10 @@ class inD_Scenarios:
         track_map = OrderedDict()
         self.init_scenefile = init_scenefile
         self.file_init_end = {2:7, 7:18, 30:33}
+        self.seg_regions = {(30,32):{'ag1':{'ln_n_1':None,'prep-turn_n':None,'exec-turn_n':None,'ln_e_-1':None},'ag2':{'ln_s_2':None,'l_n_s_l':None,'ln_n_-1':None}},
+                              (7,17):{'ag1':{'ln_n_1':None,'prep-turn_n':None,'exec-turn_n':None,'ln_e_-2':None},'ag2':{'ln_s_2':None,'l_s_n_l':None,'ln_n_-1':None}},
+                              (2,6):{'ag1':{'ln_s_4':None,'rt_prep-turn_s':None,'rt_exec-turn_s':None,'ln_e_-1':None},'ag2':{'ln_w_3':None,'l_w_e_r':None,'ln_e_-2':None}}}
+        
         
     def setup_database(self,file_id): 
         conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
@@ -335,6 +560,17 @@ class inD_Scenarios:
             q_string = 'DELETE FROM TRAJECTORIES_'+str(file_id)+'_EXT'
             c.execute(q_string)
         conn.commit()
+        
+    def create_views(self):
+        dbfileids = [x for x in np.arange(2,18)] + [x for x in np.arange(30,33)]
+        dbfileids = [str(x) if x >=10 else '0'+str(x) for x in dbfileids] 
+        for file_id in dbfileids:
+            conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
+            c = conn.cursor()
+            q_string = 'CREATE VIEW v_TIMES AS SELECT TRACK_ID,MIN(TIME) AS ENTRY_TIME ,MAX(TIME) AS EXIT_TIME FROM TRAJECTORIES_'+str(file_id)+' AS T1 GROUP BY TRACK_ID;'
+            c.execute(q_string)
+            conn.commit()
+            conn.close()
         
     def insert_data(self,file_id,i_string,ins_list):
         conn = sqlite3.connect(os.path.join(rg_constants.ind_dataset_path,str(file_id)+'.db'))
@@ -369,16 +605,14 @@ class inD_Scenarios:
     
     def load_tracks(self):
         scene_data = dict()
-        seg_regions = {(30,32):{'ag1':{'ln_n_1':None,'prep-turn_n':None,'exec-turn_n':None,'ln_e_-1':None},'ag2':{'ln_s_2':None,'l_n_s_l':None,'ln_n_-1':None}},
-                              (7,17):{'ag1':{'ln_n_1':None,'prep-turn_n':None,'exec-turn_n':None,'ln_e_-2':None},'ag2':{'ln_s_2':None,'l_s_n_l':None,'ln_n_-1':None}},
-                              (2,6):{'ag1':{'ln_s_4':None,'rt_prep-turn_s':None,'rt_exec-turn_s':None,'ln_e_-1':None},'ag2':{'ln_w_3':None,'l_w_e_r':None,'ln_e_-2':None}}}
+        seg_regions = self.seg_regions
         for k,v in seg_regions.items():
             for ag,segs in v.items():
                 for seg in segs.keys():
                     reg = parse_scenes(k[0],[seg])
                     segs[seg] = copy.deepcopy(reg[0])
             
-        with open('D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files.csv', mode='r') as csv_file:
+        with open('D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files_to_insert.csv', mode='r') as csv_file:
             csv_reader = csv.DictReader(csv_file)
             for row in csv_reader:
                 if row['file_id'] not in scene_data:
@@ -441,8 +675,8 @@ class inD_Scenarios:
     
     def right_turn_scenarios(self):
         track_meta_map = dict()
-        lt_focus_regions, st_focus_regions = parse_scenes(2,['ln_s_4']), parse_scenes(2,['ln_w_3'])
-        
+        lt_focus_regions, st_focus_regions = parse_scenes(30,['ln_n_1']), parse_scenes(30,['ln_s_2'])
+        agent_entries = []
         tot = 0
         for scene_fileid in ['0'+str(x) if x < 10 else str(x) for x in  np.arange(self.init_scenefile,self.file_init_end[self.init_scenefile])]:
             vehicles = dict()
@@ -502,11 +736,11 @@ class inD_Scenarios:
                             if k2 not in scene_map[k][k1]:
                                 current_vehs = [x[2] for x in scene_map[k][k1].values()]
                                 if len(current_vehs) > 0:
-                                    if min([LineString([v2[1],x]).length for x in current_vehs]) > 20:
-                                        scene_map[k][k1][k2] = OrderedDict()
-                                        scene_map[k][k1][k2] = (v1,v2[0],v2[1],v1[2]) 
-                                        track_info[k2] = dict()
-                                        tot += 1
+                                    #if min([LineString([v2[1],x]).length for x in current_vehs]) > 65:
+                                    scene_map[k][k1][k2] = OrderedDict()
+                                    scene_map[k][k1][k2] = (v1,v2[0],v2[1],v1[2]) 
+                                    track_info[k2] = dict()
+                                    tot += 1
                                 else:
                                     scene_map[k][k1][k2] = OrderedDict()
                                     scene_map[k][k1][k2] = (v1,v2[0],v2[1],v1[2])
@@ -517,9 +751,48 @@ class inD_Scenarios:
                 for k1,v1 in v.items():
                     for k2,v2 in v1.items():
                         print(k,k1,k2,v2[3])
+                        agent_entries.append((k,k1,k2,v2[3]))
+            with open('D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files_to_insert.csv', mode='a') as scene_file:
+                sc_writer = csv.writer(scene_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                for entr in agent_entries:
+                    sc_writer.writerow([entr[0],entr[1],entr[2],entr[3]])
         print('total',tot)
-        
+def remove_unneeded():
+    to_run,file_n = [],[]
+    with open('D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files.csv',newline='\n') as csv_file:
+        sc_reader = csv.reader(csv_file, delimiter=',')
+        line_count = 0
+        for row in sc_reader:
+            if line_count == 0:
+                line_count += 1
+                continue
+            to_run.append('_'.join(row[:-1]+[str(int(float(row[-1])))]))
+            file_n.append('_'.join(row))
+    resultfiles = [f for f in listdir('D:\\repeated_games_data\\rg_ind_run\\game_trees')]
+    resultfiles = [x.split('.')[0] for x in resultfiles]
+    to_del = []
+    for r in resultfiles:
+        if int(r.split('_')[0]) not in [2,3,4,5,6]:
+            continue
+        ts = str(int(int(r.split('_')[-1])//25))
+        ran = '_'.join(r.split('_')[:-1] + [ts])
+        if ran not in to_run:
+            to_del.append(r)
+        else:
+            fidx = to_run.index(ran)
+            new_fn = file_n[fidx].replace('.',',')
+            os.rename('D:\\repeated_games_data\\rg_ind_run\\game_trees\\'+r+'.gt','D:\\repeated_games_data\\rg_ind_run\\game_trees\\'+new_fn+'.gt' )
+    for f in to_del:
+        os.remove('D:\\repeated_games_data\\rg_ind_run\\game_trees\\'+f+'.gt')
+    f=1
+
 if __name__ == '__main__':
-    sc = inD_Scenarios(2,[])
+    #sc = inD_Scenarios(30,[])
     #sc.right_turn_scenarios()
-    sc.load_tracks()
+    #sc.load_tracks()
+    #sc.create_views()
+    #left_turn_interaction_inD_scenarios()
+    f=1
+    #remove_unneeded()
+    #right_turn_interaction_inD_scenarios()
+    left_turn_interaction_scenarios()

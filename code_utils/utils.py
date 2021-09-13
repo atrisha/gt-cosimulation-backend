@@ -62,7 +62,6 @@ def get_reasonable_velocities(seg,direction=None,ag_obj=None):
     return target_vels
     
 
-
 def get_within_node(node_list,ag1_emptrajl,ag2_emptrajl):
     trajl_errs = []
     for c in node_list:

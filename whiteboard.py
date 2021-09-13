@@ -350,6 +350,6 @@ import utm
 d = utm.from_latlon(40.758, -73.8294)
 print(d)
 '''
-
+print([round(x,2) for x in np.linspace(10,20,20).tolist()])
 #column_labels = list(range(0,24))
 

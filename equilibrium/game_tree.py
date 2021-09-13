@@ -1236,6 +1236,7 @@ class GameTree:
     
 def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
     rg_constants.SCENE_TYPE = ('REAL',None)
+    rg_constants.DATASET = 'intersection_dataset'
     scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=initialize_db,start_ts=start_ts,freq=freq)
     maneuver_constraints = scene_def.setup_trajectory_constraints()
     tree_builder = TreeBuilder(freq,initialize_db)
@@ -1262,14 +1263,22 @@ def run_one_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
     gt.solve(RobustResponse(context))
     print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
     start_time = time.time()
+    context.precision_parm = 1
     gt.solve(Ql1Model(context))
-    print('solving autom. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    print('solving qlk=1(0.8). strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    context.precision_parm = 0.5
+    gt.solve(Ql1Model(context))
+    print('solving qlk=1(0.5). strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
+    start_time = time.time()
+    gt.solve(Ql0Model(context))
+    print('solving qlk=0. strategy tree....DONE','(%s secs)' % (time.time() - start_time),)
     
     gt.scene_def = scene_def
     assign_emp_nodes(gt,gt.scene_def)
     gt.print_tree()
     #plot_velocity_profiles(gt,scene_def,freq)
-    gt.animate('mspe')
+    #gt.animate('mspe')
     f=1
 
 def run_one_ind_scenario(dbfile_id,agent1_id,agent2_id,start_ts,initialize_db,freq):
@@ -1322,7 +1331,7 @@ def animate_one_scenario(gt_file_id):
                 
 
 def run_all_scenarios():
-    run_all_ind_scenarios()
+    run_all_wmad_scenarios()
     
 def run_all_wmad_scenarios():
     freq = .5
@@ -1350,20 +1359,26 @@ def run_all_wmad_scenarios():
             inp_file_ids = ast.literal_eval(sys.argv[1])
             dbfile_id = row[0]
             row_sc_type = row[1]
+            row_dir = row[2]
             if int(dbfile_id) not in inp_file_ids:
                 continue
             if scene_type is not None and scene_type != row_sc_type:
                 print('row',row,'not the scene type',sys.argv[2],'...continuing')
                 continue
+            if row_dir not in ['ne','es']:
+                print('row',row,'not the direction type...continuing')
+                continue
+            agent1_id = int(row[3])
+            agent2_id = int(row[4])
+            start_ts = float(row[5])
+            constants.CURRENT_FILE_ID = dbfile_id
             if not initialize_files:
-                if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
+                rg_dbfile_id = constants.CURRENT_FILE_ID+'_'+str(agent1_id)+'_'+str(agent2_id)+'_'+str(start_ts).replace('.', ',')
+                if os.path.isfile(rg_constants.get_rg_db_path(rg_dbfile_id)):
                     print('row',row,'processed...continuing')
                     continue
             
             
-            agent1_id = int(row[3])
-            agent2_id = int(row[4])
-            start_ts = float(row[5])
             if not rerun_failed_files:
                 if (dbfile_id,agent1_id,agent2_id,start_ts) in failed_files:
                     print('row',row,'had failed...continuing')
@@ -1458,15 +1473,15 @@ def run_all_ind_scenarios():
             if line_count == 0:
                 line_count += 1
                 continue
-            #inp_file_ids = [x for x in np.arange(6,18)] + [x for x in np.arange(30,33)] 
-            inp_file_ids = ast.literal_eval(sys.argv[1])
+            inp_file_ids = [x for x in np.arange(2,18)] + [x for x in np.arange(30,33)] 
+            #inp_file_ids = ast.literal_eval(sys.argv[1])
             dbfile_id = int(row[0])
             if dbfile_id not in inp_file_ids:
                 continue
             dbfile_id = str(dbfile_id)
             agent1_id = int(row[1])
             agent2_id = int(row[2])
-            start_ts = float(row[3])/25
+            start_ts = float(row[3])
             print('processing',dbfile_id,line_count+1,agent1_id,agent2_id)
             try:
                 if not initialize_files:
@@ -1576,25 +1591,31 @@ def assign_emp_nodes(gt,scene_def):
     print('empirical path assigned',str([(x.path_from_root['agent_1'].get_last().length,x.path_from_root['agent_2'].get_last().length) for x in _path]))
         
 
-def results_all_scenarios():
-    regenerate = True
-    with open(rg_constants.SCENE_OUT_PATH,newline='\n') as csv_file:
+def results_all_scenarios(dataset):
+    regenerate = False
+    
+    if dataset == 'intersection_dataset':
+        tree_dir_path = rg_constants.TREE_FILES
+        results_dir_path = rg_constants.RESULTS_FILES
+        scene_file_path = rg_constants.SCENE_OUT_PATH
+    else:
+        tree_dir_path = 'D:\\repeated_games_data\\rg_ind_run\\game_trees'
+        results_dir_path = 'D:\\repeated_games_data\\rg_ind_run\\results'
+        scene_file_path = 'D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files.csv'
+    with open(scene_file_path,newline='\n') as csv_file:
         sc_reader = csv.reader(csv_file, delimiter=',')
         line_count = 0
         for row in sc_reader:
-            if os.path.isfile(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt')):
+            
+            if os.path.isfile(os.path.join(tree_dir_path,'_'.join(row).replace('.',',')+'.gt')):
                 if not regenerate:
-                    if os.path.isfile(os.path.join(rg_constants.RESULTS_FILES,'_'.join(row).replace('.',',')+'.results')):
+                    if os.path.isfile(os.path.join(results_dir_path,'_'.join(row).replace('.',',')+'.results')) or row[2] not in ['ne','es']:
                         print('row',row,'processed...continuing')
                         continue
                 print('row',row,'processing..')
-                dbfile_id = row[0]
-                agent1_id = int(row[3])
-                agent2_id = int(row[4])
-                start_ts = float(row[5])
                 #scene_def = ScenarioDef(agent_1_id=agent1_id,agent_2_id=agent2_id,file_id=dbfile_id,initialize_db=False,start_ts=start_ts)
                 try:
-                    gt = all_utils.utils.pickle_load(os.path.join(rg_constants.TREE_FILES,'_'.join(row).replace('.',',')+'.gt'))
+                    gt = all_utils.utils.pickle_load(os.path.join(tree_dir_path,'_'.join(row).replace('.',',')+'.gt'))
                 except EOFError:
                     print('row',row,'failed..continuing')
                     continue
@@ -1602,30 +1623,65 @@ def results_all_scenarios():
                 assign_emp_nodes(gt,gt.scene_def)
                 gt.print_tree()
                 print('---------')
-                pickle_dump_to_dir(os.path.join(rg_constants.RESULTS_FILES,'_'.join(row).replace('.',',')+'.results'), gt.results)
+                pickle_dump_to_dir(os.path.join(results_dir_path,'_'.join(row).replace('.',',')+'.results'), gt.results)
                 line_count += 1
             
 
-def plot_all_results():
-    
+def plot_all_results(dataset):
+    if dataset == 'intersection_dataset':
+        tree_dir_path = rg_constants.TREE_FILES
+        results_dir_path = rg_constants.RESULTS_FILES
+        scene_file_path = rg_constants.SCENE_OUT_PATH
+    else:
+        tree_dir_path = 'D:\\repeated_games_data\\rg_ind_run\\game_trees'
+        results_dir_path = 'D:\\repeated_games_data\\rg_ind_run\\results'
+        scene_file_path = 'D:\\repeated_games_data\\intersection_dataset\\ind_scenario_files.csv'
     hit_ct = {'uspe':0,'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0,'ql0':0}  
     range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'ql0':[]}
     pooling_map = {'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()}
     disagreement_map = {k:{'ag1':[],'ag2':[]} for k in itertools.product(pooling_map.keys(), pooling_map.keys())}
     line_count,tot = 0,0
-    resultfiles = [f for f in listdir(rg_constants.RESULTS_FILES) if isfile(join(rg_constants.RESULTS_FILES, f))]
+    resultfiles = [f for f in listdir(results_dir_path) if isfile(join(results_dir_path, f))]
     residual_freq_ct = {'ag1_auto_resp':OrderedDict(), 'ag1_robust_resp':OrderedDict(), 'ag1_spe':OrderedDict(), 'qlk': OrderedDict()}
-    scene_type = 'rt'
+    scene_type = 'lt'
+    include_map = dict()
+    if dataset == 'inD':
+        for resfile_name in resultfiles:
+            dbfile = int(resfile_name.split('_')[0])
+            ag1_id = int(resfile_name.split('_')[1])
+            ag2_id = int(resfile_name.split('_')[1])
+            if dbfile not in include_map:
+                include_map[dbfile] = dict()
+            if ag1_id not in include_map[dbfile]:
+                include_map[dbfile][ag1_id] = [ag2_id]
+            else:
+                include_map[dbfile][ag1_id].append(ag2_id)
     for resfile_name in resultfiles:
-        this_scene_type = resfile_name.split('_')[1]
+        too_close_ignore = False
+        if dataset == 'intersection_dataset':
+            this_scene_type = resfile_name.split('_')[1]
+        else:
+            this_scene_type = resfile_name.split('_')[0]
+            this_scene_type = 'rt' if 2 <= int(this_scene_type) <=6 else 'lt'
+            dbfile = int(resfile_name.split('_')[0])
+            ag1_id = int(resfile_name.split('_')[1])
+            ag2_id = int(resfile_name.split('_')[1])
+            sorted_ag2s = sorted(include_map[dbfile][ag1_id])
+            this_idx = sorted_ag2s.index(ag2_id)
+            if this_idx > 0:
+                prev_ag2id = sorted_ag2s[this_idx-1]
+                f=1
         if scene_type != this_scene_type:
-            print('row',this_scene_type,'not the scene type',scene_type,'...continuing')
+            print(resfile_name,'row',this_scene_type,'not the scene type',scene_type,'...continuing')
+            continue
+        if too_close_ignore:
+            print(resfile_name,'row','too close to previous vehicle in scene...continuing')
             continue
         line_count += 1
         print(line_count)
         #if line_count >= 30:
         #    break
-        res_info = all_utils.utils.pickle_load(os.path.join(rg_constants.RESULTS_FILES,resfile_name))
+        res_info = all_utils.utils.pickle_load(os.path.join(results_dir_path,resfile_name))
         lpm_template = {2:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()},
                                  4:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()},
                                  6:{'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()}}
@@ -1653,9 +1709,12 @@ def plot_all_results():
                         node_res['ag1_nac'] = node_res['ag1_nac'][0]
                     if node_res['ag2_nac'] is not False and len(node_res['ag2_nac']) == 1:
                         node_res['ag2_nac'] = node_res['ag2_nac'][0]
-                        
+                    if node_res['ag1_ac'] is False and node_res['ag1_nac'] is False:
+                        f=1 
+                    if node_res['ag2_ac'] is False and node_res['ag2_nac'] is False:
+                        f=1 
+                     
                     if node_res['ag1_ac'] is not False:
-                        
                         range_var['ac'].append(len(np.arange(min(node_res['ag1_ac']), max(node_res['ag1_ac'])+.5,.5)))
                         type_list = np.arange(round(min(node_res['ag1_ac']),1), round(max(node_res['ag1_ac']),1)+.5,.5).tolist()
                         type_list.sort()
@@ -1968,7 +2027,7 @@ def plot_all_results():
         mean_type = 0
         for t1,t2 in v.items():
             mean_type += sum(list(t1))*t2
-        mean_type = mean_type / sum(list(v.values()))
+        mean_type = mean_type / sum(list(v.values())) if sum(list(v.values())) !=0 else -10
         print(k,mean_type)
     print('---------')
     print('for scene type',scene_type)
@@ -2068,12 +2127,12 @@ def main():
 if __name__ == '__main__':
     #rg_constants.SCENE_TYPE = ('synthetic','test')
     #rg_constants.CURRENT_RG_FILE_ID = '769_44_49_34,1341'
-    #run_one_scenario(dbfile_id='770', agent1_id=186, agent2_id=159, start_ts=178.511667, initialize_db=True, freq=0.5)
-    run_one_ind_scenario(dbfile_id='2', agent1_id=92, agent2_id=93, start_ts=4276/25, initialize_db=True, freq=0.5)
+    #run_one_scenario(dbfile_id='769', agent1_id=41, agent2_id=5, start_ts=29.362667, initialize_db=True, freq=0.5)
+    #run_one_ind_scenario(dbfile_id='2', agent1_id=92, agent2_id=93, start_ts=4276/25, initialize_db=True, freq=0.5)
     #animate_one_scenario('769_rt_ws_8_23_3,338667')
-    #plot_all_results()
+    plot_all_results('intersection_dataset')
     #run_all_scenarios()
-    #results_all_scenarios()
+    #results_all_scenarios('intersection_dataset')
     #main()
     f=1
     

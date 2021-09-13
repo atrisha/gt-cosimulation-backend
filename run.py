@@ -972,7 +972,7 @@ class ScenarioRunner():
         if rg_constants.SCENE_TYPE == ('synthetic','merge_before_intersection'):
             agent1_id, agent2_id = 1, 2
             run_id = 0
-            rerun = False
+            rerun = True
             for ag_vels in itertools.product(np.linspace(0,10,20).tolist(),np.linspace(0,3,5).tolist()):
                 run_id += 1
                 file_id = str(run_id)+'_'+str(agent1_id)+'-'+str(agent2_id)+'_'+str(ag_vels[0]).replace('.',',')+'_'+str(ag_vels[1]).replace('.',',')
@@ -1015,8 +1015,8 @@ class ScenarioRunner():
             
                     
 if __name__ == '__main__':
-    '''
-    runner = ScenarioRunner(('synthetic','parking_pullout'))
+    rg_constants.DATASET = 'intersection_dataset'
+    runner = ScenarioRunner(('synthetic','intersection_clearance'))
     runner.run_scene()
     
     
@@ -1025,6 +1025,7 @@ if __name__ == '__main__':
     #res.visualization_only = ['1-2_1_20','1-3_1_10']
     #res.visualization_only = ['1-2_1,0_20,0']
     res.process_parking_pullout()
+    '''
     
     
     #run_intersection_clearance(11,1, 2,1, 10)
