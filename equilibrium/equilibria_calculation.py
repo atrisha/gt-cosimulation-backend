@@ -172,7 +172,7 @@ class Equilibria:
            
     def calc_extended_util(self,ag1_traj_frag,ag2_traj_frag,n):
         if rg_constants.SCENE_TYPE[0] == 'REAL' or (rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['merge_before_intersection']) \
-         or rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['parking_pullout']:
+         or rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['parking_pullout','nyc_ped_veh']:
             ag1_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_1'][ag1_traj_frag.get_last().manv]
             try:
                 ag2_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_2'][ag2_traj_frag.get_last().manv]
@@ -837,7 +837,8 @@ class Ql1Model(Equilibria):
 class SatisficingEquilibria(Equilibria):
     
     def set_oneq_label(self,gt,eqtype_label):
-        l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=int(1/gt.freq))
+        s1_time = int(1/gt.freq) if gt.freq == 0.5 else round(1/gt.freq,1)
+        l2_nodes = get_all_level_nodes(node=gt.root,node_list=[],tree_level=s1_time)
         for i in np.arange(gt.root.equilibrium_solutions.shape[0]):
             for j in np.arange(gt.root.equilibrium_solutions.shape[1]):
                 eq_2l = []

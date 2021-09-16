@@ -14,7 +14,7 @@ from equilibrium.equilibria_calculation import *
 import copy
 from maps.map_info import NYCMapInfo
 from mpl_toolkits.mplot3d import Axes3D
-from planners.trajectory_planner import VehicleTrajectoryPlanner, PedestrianTrajectoryPlanner, WaitTrajectoryConstraints, ProceedTrajectoryConstraints
+from planners.trajectory_planner import VehicleTrajectoryPlanner, PedestrianTrajectoryPlanner, WaitTrajectoryConstraints, ProceedTrajectoryConstraints, PedestrianManeuverConstraints
 from equilibrium.utilities import Utilities
 from numpy import linalg as LA
 import math
@@ -164,6 +164,16 @@ class Actions:
         agent_motion.generate_trajectory(True)
         trajs[manv] = agent_motion.all_trajectories
         return trajs
+    
+    def generate_pedestrian_agent_action(self,init_time,init_veh_vel,waypoint,waypoint_vels,manv,ag,horizon,agent_state,parent_trajectory_arcl=0):
+        trajs = dict()
+        manv_constr = PedestrianManeuverConstraints(init_vel=init_veh_vel,waypoints=waypoint)
+        manv_constr.parent_trajectory_arcl = parent_trajectory_arcl
+        agent_motion = PedestrianTrajectoryPlanner(traj_constr_obj=manv_constr, maneuver=manv, mode=None, horizon=horizon)
+        agent_motion.agent_state = agent_state
+        agent_motion.generate_trajectory(True)
+        trajs[manv] = agent_motion.all_trajectories
+        return trajs
                 
         
     
@@ -174,7 +184,11 @@ class Actions:
         maneuver_constraints['motion_info'] = dict()
         for manv,manv_constr in maneuver_constraints['agent_1']['maneuvers'].items():
             manv_constr.set_limit_constraints()
-            agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
+            if isinstance(maneuver_constraints['agent_1']['agent_state'], VehicleState):
+                agent1_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
+            else:
+                agent1_motion = PedestrianTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
+            agent1_motion.agent_state = maneuver_constraints['agent_1']['agent_state']
             agent1_motion.generate_trajectory(True)
             agent1_trajs[manv] = agent1_motion.all_trajectories
             if 'agent_1' not in maneuver_constraints['motion_info']:
@@ -182,8 +196,12 @@ class Actions:
             maneuver_constraints['motion_info']['agent_1'][manv] = agent1_motion
         
         for manv,manv_constr in maneuver_constraints['agent_2']['maneuvers'].items():
-            manv_constr.set_limit_constraints()
-            agent2_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
+            if isinstance(maneuver_constraints['agent_2']['agent_state'], VehicleState):
+                manv_constr.set_limit_constraints()
+                agent2_motion = VehicleTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
+            else:
+                agent2_motion = PedestrianTrajectoryPlanner(traj_constr_obj=manv_constr,maneuver= manv, mode=None, horizon=horizon)
+            agent2_motion.agent_state = maneuver_constraints['agent_2']['agent_state']
             agent2_motion.generate_trajectory(True)
             agent2_trajs[manv] = agent2_motion.all_trajectories
             if 'agent_2' not in maneuver_constraints['motion_info']:
@@ -436,7 +454,7 @@ class TreeBuilder:
                 for manv in maneuver_constraints[ag]['maneuvers'].keys():
                     q_string = "SELECT MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X),ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.TRAJ_ID,ARC_LENGTH FROM TRAJECTORY_METADATA \
                                 INNER JOIN TRAJECTORIES on TRAJECTORY_METADATA.TRAJ_ID = TRAJECTORIES.TRACK_ID \
-                                    WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag+"' AND TRAJECTORIES.TIME="+str(t[1])+" AND TRAJECTORY_METADATA.INIT_TIME="+str(t[0])+"\
+                                    WHERE TRAJECTORY_METADATA.AGENT_TYPE='"+ag+"' AND abs(TRAJECTORIES.TIME - "+str(t[1])+") < 0.01 AND abs(TRAJECTORY_METADATA.INIT_TIME - "+str(t[0])+") < 0.01\
                                     AND MANEUVER='"+manv+"'"
                     c.execute(q_string)
                     res = c.fetchall()
@@ -501,8 +519,13 @@ class TreeBuilder:
         
     
     def build_final_trajectories(self,maneuver_constraints):
-        time_interval_axes = [[(0,int(1/self.freq))], [(0,int(2*int(1/self.freq))),(int(1/self.freq),int(1/self.freq))]]
-        #time_interval_axes = [[(0,int(2*int(1/self.freq)))]]
+        s1_time = int(1/self.freq) if self.freq == 0.5 else round(1/self.freq,1)
+        s2_time = int(2*s1_time) if self.freq == 0.5 else round(2*s1_time,1)
+        if self.freq == 0.5:
+            time_interval_axes = [[(0,s1_time)], [(0,s2_time),(s1_time,s1_time)]]
+        else:
+            time_interval_axes = [[(0,round(1/self.freq,1))], [(0,round(2*round(1/self.freq,1),1)),(round(1/self.freq,1),round(1/self.freq,1))]]
+        #time_interval_axes = [[(0,s2_time)]]
         for time_intervals in time_interval_axes:
             state_lattics = self.get_current_states(time_intervals,maneuver_constraints)
             for ts,ts_v in state_lattics.items():
@@ -513,40 +536,54 @@ class TreeBuilder:
                             ct += 1
                             v = init_st[3]
                             parent_traj_arcl = init_st[5]
-                            waypt,waypt_vel = self.construct_centerline(init_st[5],ag,v,maneuver_constraints,(init_st[0],init_st[1]))
-                            path = maneuver_constraints[ag]['agent_state'].waypoints
-                            
-                            '''
-                            plt.figure()
-                            plt.plot([x[0] for x in path],[x[1] for x in path],color='blue',marker='x')
-                            plt.plot([x[0] for x in waypt],[x[1] for x in waypt],color='red',marker='o')
-                            plt.plot([init_st[0]],[init_st[1]],color='black',marker='s')
-                            plt.show()
-                            '''
-                            assert len(waypt) == len(waypt_vel)
-                            act = Actions(maneuver_constraints)
-                            generating_manv_l = [x for x in maneuver_constraints[ag]['maneuvers'].keys() if x != manv]
-                            for generating_manv in generating_manv_l:
-                                step_horizon = self.horizon - ts
+                            if isinstance(maneuver_constraints[ag]['agent_state'], VehicleState):
+                                waypt,waypt_vel = self.construct_centerline(init_st[5],ag,v,maneuver_constraints,(init_st[0],init_st[1]))
+                                path = maneuver_constraints[ag]['agent_state'].waypoints
+                                
+                                '''
+                                plt.figure()
+                                plt.plot([x[0] for x in path],[x[1] for x in path],color='blue',marker='x')
+                                plt.plot([x[0] for x in waypt],[x[1] for x in waypt],color='red',marker='o')
+                                plt.plot([init_st[0]],[init_st[1]],color='black',marker='s')
+                                plt.show()
+                                '''
+                                assert len(waypt) == len(waypt_vel)
+                                act = Actions(maneuver_constraints)
+                                generating_manv_l = [x for x in maneuver_constraints[ag]['maneuvers'].keys() if x != manv]
+                                for generating_manv in generating_manv_l:
+                                    step_horizon = self.horizon - ts
+                                    parent_traj_id = init_st[4]
+                                    '''
+                                    if ag == 'agent_2' and ts == 4:
+                                        plt.figure()
+                                        plt.title('path')
+                                        plt.plot([x[0] for x in waypt], [x[1] for x in waypt],marker='x',color='red')
+                                        v = waypt
+                                        plt.arrow(v[0][0], v[0][1],v[1][0]-v[0][0] , v[1][1]-v[0][1], width=.25,color='green')
+                                        v = path
+                                        plt.arrow(v[-2][0], v[-2][1],v[-1][0]-v[-2][0] , v[-1][1]-v[-2][1], width=.25,color='black')
+                                        plt.plot([x[0] for x in path],[x[1] for x in path],color='blue',marker='o')
+                                        plt.axis('equal')
+                                        plt.show()
+                                    '''
+                                    trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, step_horizon, parent_traj_arcl)
+                                    if self.initialize_db:
+                                        self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
+                                    print('generating',ag,'time',ts,'manv',generating_manv,ct,'/',N)
+                                    print(' '.join([str(_k)+':'+str(len(_v)) for _k,_v in trajs[generating_manv].items()]))
+                            else:
+                                dist,veh_vel,curr_pt =  init_st[5],v,(init_st[0],init_st[1])
+                                maneuver_constraints[ag]['agent_state'].x = curr_pt[0]
+                                maneuver_constraints[ag]['agent_state'].y = curr_pt[1]
+                                waypt = maneuver_constraints[ag]['maneuvers']['ped_walk'].waypoints
+                                generating_manv_l = [x for x in maneuver_constraints[ag]['maneuvers'].keys() if x != manv]
                                 parent_traj_id = init_st[4]
-                                '''
-                                if ag == 'agent_2' and ts == 4:
-                                    plt.figure()
-                                    plt.title('path')
-                                    plt.plot([x[0] for x in waypt], [x[1] for x in waypt],marker='x',color='red')
-                                    v = waypt
-                                    plt.arrow(v[0][0], v[0][1],v[1][0]-v[0][0] , v[1][1]-v[0][1], width=.25,color='green')
-                                    v = path
-                                    plt.arrow(v[-2][0], v[-2][1],v[-1][0]-v[-2][0] , v[-1][1]-v[-2][1], width=.25,color='black')
-                                    plt.plot([x[0] for x in path],[x[1] for x in path],color='blue',marker='o')
-                                    plt.axis('equal')
-                                    plt.show()
-                                '''
-                                trajs = act.generate_agent_action(ts, v, waypt, waypt_vel, generating_manv, ag, step_horizon, parent_traj_arcl)
-                                if self.initialize_db:
-                                    self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
-                                print('generating',ag,'time',ts,'manv',generating_manv,ct,'/',N)
-                                print(' '.join([str(_k)+':'+str(len(_v)) for _k,_v in trajs[generating_manv].items()]))
+                                for generating_manv in generating_manv_l:
+                                    trajs = act.generate_pedestrian_agent_action(ts, v, waypt, None, generating_manv, ag, step_horizon,maneuver_constraints[ag]['agent_state'],parent_traj_arcl)
+                                    if self.initialize_db:
+                                        self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
+                                    print('generating',ag,'time',ts,'manv',generating_manv,ct,'/',N)
+                                    print(' '.join([str(_k)+':'+str(len(_v)) for _k,_v in trajs[generating_manv].items()]))
                 
        
     def build_complete_tree(self,maneuver_constraints):
@@ -826,9 +863,11 @@ class Node:
         self.freq = self._tree_link.freq
     
     def load(self,file_id, traj_cache = None):
+        s1_time = int(1/self.freq) if self.freq==0.5 else round(1/self.freq,1)
+        s2_time = int(2*s1_time) if self.freq == 0.5 else round(2*s1_time,1)
         if traj_cache is None:
             traj_cache = dict()
-            for x in [(0,0,int(1/self.freq)),(0,int(1/self.freq),int(2*int(1/self.freq))),(int(1/self.freq),int(1/self.freq),int(2*int(1/self.freq)))]:
+            for x in [(0,0,s1_time),(0,s1_time,s2_time),(s1_time,s1_time,s2_time)]:
                 traj_cache[x] = TrajectoryCache(init_time=x[0],time_range=(x[1],x[2]),ag_type=None,file_id=file_id)
         
         if not self.is_root:
@@ -935,13 +974,15 @@ class GameTree:
     
         
     def _process_three_change_tree(self,level_nodes_2s,level_nodes_4s,level_nodes_6s):
+        s1_time = int(1/self.freq) if self.freq==0.5 else round(1/self.freq,1)
+        s2_time = int(2*s1_time) if self.freq == 0.5 else round(2*s1_time,1)
         v_tcache_4_6, p_tcache_4_6 = dict(), dict()
-        v_tcache_4_6[(int(2*int(1/self.freq)),int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=int(2*int(1/self.freq)),time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_1',file_id=self.file_id)
-        p_tcache_4_6[(int(2*int(1/self.freq)),int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=int(2*int(1/self.freq)),time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_2',file_id=self.file_id)
-        v_tcache_4_6[(int(1/self.freq),int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=int(1/self.freq),time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_1',file_id=self.file_id)
-        p_tcache_4_6[(int(1/self.freq),int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=int(1/self.freq),time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_2',file_id=self.file_id)
-        v_tcache_4_6[(0,int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=0,time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_1',file_id=self.file_id)
-        p_tcache_4_6[(0,int(2*int(1/self.freq)),self.horizon)] = TrajectoryCache(init_time=0,time_range=(int(2*int(1/self.freq)),self.horizon),ag_type='agent_2',file_id=self.file_id)
+        v_tcache_4_6[(s2_time,s2_time,self.horizon)] = TrajectoryCache(init_time=s2_time,time_range=(s2_time,self.horizon),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(s2_time,s2_time,self.horizon)] = TrajectoryCache(init_time=s2_time,time_range=(s2_time,self.horizon),ag_type='agent_2',file_id=self.file_id)
+        v_tcache_4_6[(s1_time,s2_time,self.horizon)] = TrajectoryCache(init_time=s1_time,time_range=(s2_time,self.horizon),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(s1_time,s2_time,self.horizon)] = TrajectoryCache(init_time=s1_time,time_range=(s2_time,self.horizon),ag_type='agent_2',file_id=self.file_id)
+        v_tcache_4_6[(0,s2_time,self.horizon)] = TrajectoryCache(init_time=0,time_range=(s2_time,self.horizon),ag_type='agent_1',file_id=self.file_id)
+        p_tcache_4_6[(0,s2_time,self.horizon)] = TrajectoryCache(init_time=0,time_range=(s2_time,self.horizon),ag_type='agent_2',file_id=self.file_id)
         _ext_id = GameTree.counter
         self.root = Node(0,None,_ext_id,self)
         self.root.parent = None
@@ -967,8 +1008,8 @@ class GameTree:
                                 if not (_c[0][8] == n4s[0][-1] and _c[1][8] == n4s[1][-1]):
                                     ''' But if the node is part of the same trajectory, then it is okay.'''
                                     continue
-                            vtf = TrajectoryFragment(time_range=(int(2*int(1/self.freq)),self.horizon),traj_id=_c[0][-2],manv=_c[0][0],manv_mode=_c[0][1],init_time=_c[0][-3],horizon=self.horizon)
-                            ptf = TrajectoryFragment(time_range=(int(2*int(1/self.freq)),self.horizon),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3],horizon=self.horizon)
+                            vtf = TrajectoryFragment(time_range=(s2_time,self.horizon),traj_id=_c[0][-2],manv=_c[0][0],manv_mode=_c[0][1],init_time=_c[0][-3],horizon=self.horizon)
+                            ptf = TrajectoryFragment(time_range=(s2_time,self.horizon),traj_id=_c[1][-2],manv=_c[1][0],manv_mode=_c[1][1],init_time=_c[1][-3],horizon=self.horizon)
                             vtf.load(self.file_id,v_tcache_4_6)
                             ptf.load(self.file_id,p_tcache_4_6)
                             _newvtf = copy.deepcopy(level_nodes_4s[n4s].path_from_root['agent_1'])
@@ -999,12 +1040,14 @@ class GameTree:
         print('building lattice nodes...')
         self.maneuver_constraints = maneuver_constraints
         start_time = time.time()
-        level_nodes_2s = self.build_level_nodes(int(1/self.freq))
-        level_nodes_4s = self.build_level_nodes(int(2*int(1/self.freq)))
+        s1_time = int(1/self.freq) if self.freq==0.5 else round(1/self.freq,1)
+        s2_time = int(2*s1_time) if self.freq==0.5 else round(2*s1_time,2)
+        level_nodes_2s = self.build_level_nodes(s1_time)
+        level_nodes_4s = self.build_level_nodes(s2_time)
         level_nodes_6s = self.build_level_nodes(self.horizon)
         if len(level_nodes_2s) == 0 or len(level_nodes_4s) == 0 or len(level_nodes_6s['agent_1'])==0 or len(level_nodes_6s['agent_2'])==0:
             raise UnsupportedLatticeException(l2_size=len(level_nodes_2s), l4_size=len(level_nodes_4s), l6_size=(len(level_nodes_6s['agent_1']),len(level_nodes_6s['agent_2'])))
-        self.last_decision_level = int(2*int(1/self.freq))
+        self.last_decision_level = s2_time
         self._process_three_change_tree(level_nodes_2s, level_nodes_4s, level_nodes_6s)
         '''
         if len(level_nodes_2s) == 0 and len(level_nodes_4s) != 0:
@@ -1087,9 +1130,10 @@ class GameTree:
         conn = sqlite3.connect(rg_constants.get_rg_db_path(self.file_id))
         c = conn.cursor()
         all_level_nodes = dict()
-            
+        s1_time = int(1/self.freq) if self.freq == 0.5 else round(1/self.freq,1)
+        s2_time = int(2*s1_time) if self.freq == 0.5 else round(2*s1_time,1)
         def _getqstring(ag_type):
-            start_time,one_step_t,two_step_t,three_step_t = 0,int(1/self.freq),int(2*int(1/self.freq)),self.horizon
+            start_time,one_step_t,two_step_t,three_step_t = 0,s1_time,s2_time,self.horizon
             return "select MANEUVER, MANEUVER_MODE, SPEED, ABS(INIT_POS_X-X)*ABS(INIT_POS_X-X)+ABS(INIT_POS_Y-Y)*ABS(INIT_POS_Y-Y),X,Y,ANGLE,TRAJECTORY_METADATA.INIT_TIME,TRAJECTORY_METADATA.TRAJ_ID,TRAJECTORY_METADATA.PARENT_TRAJ_ID from TRAJECTORIES INNER JOIN TRAJECTORY_METADATA ON TRAJECTORY_METADATA.TRAJ_ID=TRAJECTORIES.TRACK_ID WHERE TRAJECTORY_METADATA.INIT_TIME="+str(two_step_t)+" AND TRAJECTORIES.TIME="+str(one_step_t)+" \
                         AND TRAJECTORY_METADATA.AGENT_TYPE='"+ag_type+"' \
                         UNION \
@@ -1117,11 +1161,11 @@ class GameTree:
                 lattice_dist_step_ag2 = 5
                 
             for idx1,veh_row in enumerate(veh_res):
-                parent_traj_id = veh_row[-1] if veh_row[-1] is not None and veh_row[-3] == int(2*int(1/self.freq)) else veh_row[-2]
+                parent_traj_id = veh_row[-1] if veh_row[-1] is not None and veh_row[-3] == s2_time else veh_row[-2]
                 if parent_traj_id not in veh_lattice_states:
                         veh_lattice_states[parent_traj_id] = []
                         
-                if veh_row[-3] == int(2*int(1/self.freq)):
+                if veh_row[-3] == s2_time:
                     if parent_traj_id not in latc_tracker_veh or ( math.sqrt(veh_row[3])-min(latc_tracker_veh[parent_traj_id], key=lambda x:abs(x-math.sqrt(veh_row[3]))) > lattice_dist_step_ag1 ):
                         if parent_traj_id not in latc_tracker_veh:
                             latc_tracker_veh[parent_traj_id] = []
@@ -1131,10 +1175,10 @@ class GameTree:
                     veh_lattice_states[parent_traj_id].append(tuple([x if _i !=3 else math.sqrt(x) for _i,x in enumerate(veh_row)]))
                     
             for idx2,peds_row in enumerate(peds_res):
-                parent_traj_id = peds_row[-1] if peds_row[-1] is not None and peds_row[-3] == int(2*int(1/self.freq)) else peds_row[-2]
+                parent_traj_id = peds_row[-1] if peds_row[-1] is not None and peds_row[-3] == s2_time else peds_row[-2]
                 if parent_traj_id not in peds_lattice_states:
                         peds_lattice_states[parent_traj_id] = []
-                if peds_row[-3] == int(2*int(1/self.freq)):
+                if peds_row[-3] == s2_time:
                     if parent_traj_id not in latc_tracker_ped or ( math.sqrt(peds_row[3])-min(latc_tracker_ped[parent_traj_id], key=lambda x:abs(x-math.sqrt(peds_row[3]))) > lattice_dist_step_ag2 ):
                         if parent_traj_id not in latc_tracker_ped:
                             latc_tracker_ped[parent_traj_id] = []
@@ -1157,7 +1201,8 @@ class GameTree:
             veh_res = c.fetchall()
             veh_traj_info = {row[0]:(row[6],row[7],row[9]) for row in veh_res}
             
-            if level == int(2*int(1/self.freq)):
+            
+            if level == s2_time:
                 ''' get the grandparent fragment info. Only level 4 has grandparent, and that starts from time 0 '''
                 q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 and TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_1'+"'"
                 c.execute(q_string)
@@ -1172,7 +1217,7 @@ class GameTree:
             c.execute(q_string)
             peds_res = c.fetchall()
             peds_traj_info = {row[0]:(row[6],row[7],row[9]) for row in peds_res}
-            if level == int(2*int(1/self.freq)):
+            if level == s2_time:
                 ''' get the grandparent fragment info. Only level 4 has grandparent, and that starts from time 0 '''
                 q_string = "SELECT *  FROM TRAJECTORY_METADATA WHERE TRAJECTORY_METADATA.INIT_TIME=0 and TRAJECTORY_METADATA.AGENT_TYPE='"+'agent_2'+"'"
                 c.execute(q_string)
@@ -1185,18 +1230,18 @@ class GameTree:
             ct,N = 0,len(veh_res)*len(peds_res)
             for idx1,veh_row in enumerate(veh_res):
                 if veh_row[9] == 0:
-                    vtf1 = TrajectoryFragment(time_range = (0,int(1/self.freq)) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
-                    if level == int(2*int(1/self.freq)):
-                        vtf2 = TrajectoryFragment(time_range = (int(1/self.freq),int(2*int(1/self.freq))) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
+                    vtf1 = TrajectoryFragment(time_range = (0,s1_time) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
+                    if level == s2_time:
+                        vtf2 = TrajectoryFragment(time_range = (s1_time,s2_time) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
                         vtf2.is_last = True
                         vtf1.next_fragment = vtf2
                     else:
                         vtf1.is_last = True
                 else:
                     ''' get the grandparent fragment '''
-                    vtf1 = TrajectoryFragment(time_range = (0,int(1/self.freq)) ,traj_id = veh_row[10] ,manv = veh_traj_info[veh_row[10]][0],manv_mode = veh_traj_info[veh_row[10]][1],init_time = veh_traj_info[veh_row[10]][2],horizon=self.horizon)
-                    if level == int(2*int(1/self.freq)):
-                        vtf2 = TrajectoryFragment(time_range = (int(1/self.freq),int(2*int(1/self.freq))) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
+                    vtf1 = TrajectoryFragment(time_range = (0,s1_time) ,traj_id = veh_row[10] ,manv = veh_traj_info[veh_row[10]][0],manv_mode = veh_traj_info[veh_row[10]][1],init_time = veh_traj_info[veh_row[10]][2],horizon=self.horizon)
+                    if level == s2_time:
+                        vtf2 = TrajectoryFragment(time_range = (s1_time,s2_time) ,traj_id = veh_row[0] ,manv = veh_traj_info[veh_row[0]][0],manv_mode = veh_traj_info[veh_row[0]][1],init_time = veh_traj_info[veh_row[0]][2],horizon=self.horizon)
                         vtf2.is_last = True
                         vtf1.next_fragment = vtf2
                     else:
@@ -1205,17 +1250,17 @@ class GameTree:
                     ct += 1
                     #print('level',level,ct,'/',N)
                     if peds_row[9] == 0:
-                        ptf1 = TrajectoryFragment(time_range = (0,int(1/self.freq)) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
-                        if level == int(2*int(1/self.freq)):
-                            ptf2 = TrajectoryFragment(time_range = (int(1/self.freq),int(2*int(1/self.freq))) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
+                        ptf1 = TrajectoryFragment(time_range = (0,s1_time) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
+                        if level == s2_time:
+                            ptf2 = TrajectoryFragment(time_range = (s1_time,s2_time) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
                             ptf2.is_last = True
                             ptf1.next_fragment = ptf2
                         else:
                             ptf1.is_last = True
                     else:
-                        ptf1 = TrajectoryFragment(time_range = (0,int(1/self.freq)) ,traj_id = peds_row[10] ,manv = peds_traj_info[peds_row[10]][0],manv_mode = peds_traj_info[peds_row[10]][1],init_time = peds_traj_info[peds_row[10]][2],horizon=self.horizon)
-                        if level == int(2*int(1/self.freq)):
-                            ptf2 = TrajectoryFragment(time_range = (int(1/self.freq),int(2*int(1/self.freq))) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
+                        ptf1 = TrajectoryFragment(time_range = (0,s1_time) ,traj_id = peds_row[10] ,manv = peds_traj_info[peds_row[10]][0],manv_mode = peds_traj_info[peds_row[10]][1],init_time = peds_traj_info[peds_row[10]][2],horizon=self.horizon)
+                        if level == s2_time:
+                            ptf2 = TrajectoryFragment(time_range = (s1_time,s2_time) ,traj_id = peds_row[0] ,manv = peds_traj_info[peds_row[0]][0],manv_mode = peds_traj_info[peds_row[0]][1],init_time = peds_traj_info[peds_row[0]][2],horizon=self.horizon)
                             ptf2.is_last = True
                             ptf1.next_fragment = ptf2
                         else:
@@ -1224,7 +1269,7 @@ class GameTree:
                     nd = Node(level,{'agent_1':vtf1, 'agent_2':ptf1}, _ext_id,self)
                     GameTree.counter += 1
                     #nd.load()
-                    if level == int(2*int(1/self.freq)):
+                    if level == s2_time:
                         s_key = ((vtf1.traj_id,vtf2.traj_id),(ptf1.traj_id,ptf2.traj_id))
                         print(s_key,(vtf1.manv,vtf2.manv),(ptf1.manv,ptf2.manv))
                     else:

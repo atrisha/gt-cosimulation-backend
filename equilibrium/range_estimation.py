@@ -216,6 +216,9 @@ class MinDistanceGapModel:
     
     def build_agent_trajectories(self,ag_type):
         trajectories = dict()
+        s1_time = int(1/self.freq) if self.freq == 0.5 else round(1/self.freq,1)
+        s2_time = int(2*s1_time) if self.freq == 0.5 else round(2*s1_time,1)
+        
         trajectories = dict()
         conn = sqlite3.connect(rg_constants.get_rg_db_path(self.file_id))
         c = conn.cursor()
@@ -224,9 +227,9 @@ class MinDistanceGapModel:
         c.execute(q_string)
         res = c.fetchall()
         for row in res:
-            tf0_2 = TrajectoryFragment((0,int(1/self.freq)),row[0],row[1],row[2],0,self.horizon)
-            tf2_4 = TrajectoryFragment((int(1/self.freq),int(2*int(1/self.freq))),row[0],row[1],row[2],0,self.horizon)
-            tf4_6 = TrajectoryFragment((int(2*int(1/self.freq)),self.horizon),row[0],row[1],row[2],0,self.horizon)
+            tf0_2 = TrajectoryFragment((0,s1_time),row[0],row[1],row[2],0,self.horizon)
+            tf2_4 = TrajectoryFragment((s1_time,s2_time),row[0],row[1],row[2],0,self.horizon)
+            tf4_6 = TrajectoryFragment((s2_time,self.horizon),row[0],row[1],row[2],0,self.horizon)
             tf2_4.next_fragment = tf4_6
             tf0_2.next_fragment = tf2_4
             #trajectories.append(tf0_2)
@@ -253,9 +256,9 @@ class MinDistanceGapModel:
             frag_1_init_time = 0
             frag_2_init_time = row[20]
             if frag_2_init_time == 2:
-                tf0_2 = TrajectoryFragment((0,int(1/self.freq)),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
-                tf2_4 = TrajectoryFragment((int(1/self.freq),int(2*int(1/self.freq))),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
-                tf4_6 = TrajectoryFragment((int(2*int(1/self.freq)),self.horizon),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
+                tf0_2 = TrajectoryFragment((0,s1_time),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
+                tf2_4 = TrajectoryFragment((s1_time,s2_time),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
+                tf4_6 = TrajectoryFragment((s2_time,self.horizon),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
                 tf2_4.next_fragment = tf4_6
                 tf0_2.next_fragment = tf2_4
                 #trajectories.append(tf0_2)
@@ -264,9 +267,9 @@ class MinDistanceGapModel:
                 else:
                     trajectories[(frag_1_manv,frag_2_manv,frag_2_manv)].append(tf0_2) 
             else:
-                tf0_2 = TrajectoryFragment((0,int(1/self.freq)),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
-                tf2_4 = TrajectoryFragment((int(1/self.freq),int(2*int(1/self.freq))),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
-                tf4_6 = TrajectoryFragment((int(2*int(1/self.freq)),self.horizon),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
+                tf0_2 = TrajectoryFragment((0,s1_time),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
+                tf2_4 = TrajectoryFragment((s1_time,s2_time),frag_1_traj_id,frag_1_manv,frag_1_manv_mode,frag_1_init_time,self.horizon)
+                tf4_6 = TrajectoryFragment((s2_time,self.horizon),frag_2_traj_id,frag_2_manv,frag_2_manv_mode,frag_2_init_time,self.horizon)
                 tf2_4.next_fragment = tf4_6
                 tf0_2.next_fragment = tf2_4
                 #trajectories.append(tf0_2)
@@ -281,9 +284,9 @@ class MinDistanceGapModel:
         c.execute(q_string)
         res = c.fetchall()
         for row in res:
-            tf0_2 = TrajectoryFragment((0,int(1/self.freq)),row[0],row[1],row[2],row[9],self.horizon)
-            tf2_4 = TrajectoryFragment((int(1/self.freq),int(2*int(1/self.freq))),row[3],row[4],row[5],row[10],self.horizon)
-            tf4_6 = TrajectoryFragment((int(2*int(1/self.freq)),self.horizon),row[6],row[7],row[8],row[11],self.horizon)
+            tf0_2 = TrajectoryFragment((0,s1_time),row[0],row[1],row[2],row[9],self.horizon)
+            tf2_4 = TrajectoryFragment((s1_time,s2_time),row[3],row[4],row[5],row[10],self.horizon)
+            tf4_6 = TrajectoryFragment((s2_time,self.horizon),row[6],row[7],row[8],row[11],self.horizon)
             tf2_4.next_fragment = tf4_6
             tf0_2.next_fragment = tf2_4
             #trajectories.append(tf0_2)
@@ -299,8 +302,10 @@ class MinDistanceGapModel:
         ''' sample the trajectories to build the model taking into account
             adequate coverage of maneuver combinations 
         '''
+        s1_time = int(1/self.freq) if self.freq == 0.5 else round(1/self.freq,1)
+        s2_time = int(2*s1_time) if self.freq == 0.5 else round(2*s1_time,1)
         traj_cache = dict()
-        for x in [(0,0,int(1/self.freq)),(0,int(1/self.freq),int(2*int(1/self.freq))),(0,int(2*int(1/self.freq)),self.horizon),(int(1/self.freq),int(1/self.freq),int(2*int(1/self.freq))),(int(1/self.freq),int(2*int(1/self.freq)),self.horizon),(int(2*int(1/self.freq)),int(2*int(1/self.freq)),self.horizon)]:
+        for x in [(0,0,s1_time),(0,s1_time,s2_time),(0,s2_time,self.horizon),(s1_time,s1_time,s2_time),(s1_time,s2_time,self.horizon),(s2_time,s2_time,self.horizon)]:
             traj_cache[x] = TrajectoryCache(init_time=x[0],time_range=(x[1],x[2]),ag_type=None,file_id=self.file_id)
         for m,t in pedestrian_trajectories.items():
             if len(t) > 50:

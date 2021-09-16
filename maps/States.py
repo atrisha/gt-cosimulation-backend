@@ -9,10 +9,10 @@ import constants
 from all_utils.utils import interpolate_track_info
 from motion_planners.planning_objects import VehicleState as OneshotRepoVehicleState
 import ast
-from planners.planning_objects import VehicleState
+from planners.planning_objects import VehicleState, PedestrianState
 from shapely.ops import nearest_points
 from shapely.geometry import LineString, Point, MultiPoint
-from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints
+from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints, PedestrianManeuverConstraints
 import math
 from operator import itemgetter
 import matplotlib.pyplot as plt
@@ -291,12 +291,7 @@ class ScenarioDef:
         
                         
             
-            
-            
-            
-        
-            
-    def setup_trajectory_constraints(self,maneuver_map = None):
+    def setup_veh_veh_trajectory_constraints(self,maneuver_map = None):
         if maneuver_map is not None:
             maneuver_constraints = maneuver_map
         else:
@@ -364,7 +359,69 @@ class ScenarioDef:
         plt.show()
         '''
         return maneuver_constraints
+            
+    
+    def setup_veh_ped_trajectory_constraints(self,maneuver_map = None):
+        if maneuver_map is not None:
+            maneuver_constraints = maneuver_map
+        else:
+            maneuver_constraints = {'agent_1':{'maneuvers':{'wait':None,'turn':None}, 'agent_state':self.agent1},'agent_2':{'maneuvers':{'ped_walk':None,'ped_wait':None}, 'agent_state':self.agent2}}
+        if len(self.agent1.waypoints) < 5:
+            agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent1.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent1.waypoint_segments[i], self.agent1.direction) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [self.get_reasonable_velocities(self.agent1.waypoint_segments[-1], self.agent1.direction)]
+        else:
+            agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) if i != len(np.arange(1,len(self.agent1.waypoints)-1))//2 else self.get_reasonable_velocities(self.agent1.waypoint_segments[i], self.agent1.direction) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [self.get_reasonable_velocities(self.agent1.waypoint_segments[-1], self.agent1.direction)]
+        #agent1_vel_pts_proc = [(self.agent1.velocity,)] + [(None,) for i in np.arange(1,len(self.agent1.waypoints)-1)] + [(4,8.3)]
         
+        min_distgp_indx = min(enumerate([math.hypot(x[0]-y[1], x[0]-y[1]) for x,y in zip(self.agent1.waypoints,self.agent2.waypoints)]), key=itemgetter(1))[0] 
+        if LineString(self.agent1.waypoints).intersects(LineString(self.agent2.waypoints)):
+            cross_pts = LineString(self.agent1.waypoints).intersection(LineString(self.agent2.waypoints))
+            if isinstance(cross_pts, MultiPoint):
+                cross_pts = list(cross_pts.geoms)[-1]
+            dist_to_cross_ag1 = LineString(self.agent1.waypoints).project(cross_pts)
+            dist_to_cross_ag2 = LineString(self.agent2.waypoints).project(cross_pts)
+            '''
+            plt.plot([x[0] for x in self.agent1.waypoints],[x[1] for x in self.agent1.waypoints],linestyle='-', marker='o',color='red')
+            plt.plot([x[0] for x in self.agent2.waypoints],[x[1] for x in self.agent2.waypoints],linestyle='-', marker='x',color='blue')
+            plt.show()
+            '''
+        else:
+            
+            
+            dist_to_cross_ag1 = (self.agent1.velocity**2)/2
+            dist_to_cross_ag2 = (self.agent2.velocity**2)/2
+            '''
+            plt.plot([x[0] for x in self.agent1.waypoints],[x[1] for x in self.agent1.waypoints],linestyle='-', marker='o',color='red')
+            plt.plot([x[0] for x in self.agent2.waypoints],[x[1] for x in self.agent2.waypoints],linestyle='-', marker='x',color='blue')
+            plt.show()
+            f=1
+            '''
+            #raise UnsupportedScenarioException('paths fo not cross')
+            #agent_2_dist_2_stop = math.hypot(self.agent2.waypoints[min_distgp_indx][0]-self.agent2.waypoints[0][0], self.agent2.waypoints[min_distgp_indx][1]-self.agent2.waypoints[0][1])
+        agent_1_dist_1_stop = math.hypot(self.agent1.waypoints[min_distgp_indx][0]-self.agent1.waypoints[0][0], self.agent1.waypoints[min_distgp_indx][1]-self.agent1.waypoints[0][1])
+        agent_1_time_1_stop = agent_1_dist_1_stop/self.agent1.velocity if self.agent1.velocity !=0 else 2
+        agent1_traj_constr_wait = WaitTrajectoryConstraints(init_vel=self.agent1.velocity,waypoints=self.agent1.waypoints,stop_horizon_dist_sampling_range=(0,dist_to_cross_ag1),stop_horizon_time_sampling_range=(1,5))
+        agent1_traj_constr_proc = ProceedTrajectoryConstraints(waypoints=self.agent1.waypoints,waypoint_vel_sampling_range=agent1_vel_pts_proc)
+        maneuver_constraints['agent_1']['maneuvers']['wait'] = agent1_traj_constr_wait
+        maneuver_constraints['agent_1']['maneuvers']['turn'] = agent1_traj_constr_proc
+        agent2_traj_constr = PedestrianManeuverConstraints(init_vel=self.agent2.velocity,waypoints=self.agent2.waypoints)
+        maneuver_constraints['agent_2']['maneuvers']['ped_walk'] = agent2_traj_constr
+        maneuver_constraints['agent_2']['maneuvers']['ped_wait'] = agent2_traj_constr
+        maneuver_constraints['agent_2']['step_dist'] = 0.4
+        '''
+        plt.plot([x[0] for x in self.agent1.waypoints], [x[1] for x in self.agent1.waypoints], c = 'blue',marker='o')
+        plt.plot([x[0] for x in self.agent2.waypoints], [x[1] for x in self.agent2.waypoints] , c = 'red',marker='o')
+        plt.axis('equal')
+        plt.show()
+        '''
+        return maneuver_constraints
+        
+            
+    def setup_trajectory_constraints(self,maneuver_map = None):
+        if isinstance(self.agent1, VehicleState) and isinstance(self.agent2, VehicleState):
+            return self.setup_veh_veh_trajectory_constraints(maneuver_map)
+        else:
+            return self.setup_veh_ped_trajectory_constraints(maneuver_map)
+            
         
                 
 class SyntheticScenarioDef:
@@ -533,12 +590,12 @@ class TwoAgentSyntheticScenarioDef(ScenarioDef):
         if initialize_db:
             self.setup_database(file_id)
     
-    def add_agent(self,agent_tag,agent_id, agent_init_velocity_mps, agent_waypoints,agent_waypoint_segments, direction, file_id,initialize_db,start_ts,freq):   
+    def add_agent(self,agent_tag,agent_id, agent_init_velocity_mps, agent_waypoints,agent_waypoint_segments, direction, file_id,initialize_db,start_ts,freq,**kwargs):   
         assert len(agent_waypoints[0]) == 2, "Agent waypoints should contain (x,v) information"
         agent_attribs = {'x':agent_waypoints[0][0], 'y':agent_waypoints[0][1], 'velocity':agent_init_velocity_mps, 'waypoints':agent_waypoints, 'file_time':start_ts, 'id':agent_id, 'waypoint_segments':agent_waypoint_segments, 'direction':direction}
         if agent_tag == 'agent_1':
-            self.agent1 = VehicleState(agent_attribs)     
+            self.agent1 = VehicleState(agent_attribs) if kwargs['agent_type'] == 'vehicle' else PedestrianState(agent_attribs)     
         else:
-            self.agent2 = VehicleState(agent_attribs)
+            self.agent2 = VehicleState(agent_attribs) if kwargs['agent_type'] == 'vehicle' else PedestrianState(agent_attribs)
                        
         

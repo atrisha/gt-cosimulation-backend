@@ -15,6 +15,7 @@ TREE_FILES = 'D:\\repeated_games_data\\intersection_dataset\\game_trees' if SCEN
 RESULTS_FILES = 'D:\\repeated_games_data\\intersection_dataset\\results' if SCENE_TYPE[0] == 'REAL' else 'D:\\repeated_games_data\\intersection_dataset\\'+SCENE_TYPE[0]+'\\'+SCENE_TYPE[1]+'\\'+'results'
 UNI_WEBER_DB_HOME = "D:\\intersections_dataset\\dataset\\"
 CURRENT_RG_FILE_ID = None
+MAP_FILE = None
 
 PROCEED_VEL_RANGES = {'prep-left-turn':(0.5,12),
                       'exec-left-turn':(0.5,12),

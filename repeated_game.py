@@ -15,7 +15,6 @@ import matplotlib.animation as animation
 from matplotlib.patches import Polygon
 import math
 import scipy.integrate
-from maps.map_info import NYCMapInfo
 import copy
 from collections import namedtuple 
 from scipy.optimize import minimize, Bounds
