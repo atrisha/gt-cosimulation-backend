@@ -21,7 +21,7 @@ import warnings
 import constants
 import all_utils.utils
 import code_utils.utils as rg_utils
-from shapely.geometry import multipoint, point, linestring, Point
+from shapely.geometry import multipoint, point, linestring, Point, shape
 
 
 class TrajectoryConstraints:
@@ -76,7 +76,7 @@ class EmergencyBrakingConstraints(TrajectoryConstraints):
 class PedestrianManeuverConstraints(TrajectoryConstraints):
     def __init__(self,init_vel,waypoints):
         TrajectoryConstraints.__init__(self, init_vel,waypoints)
-        self.walk_vel_range = (1.3,1.8)
+        self.walk_vel_range = (0.8,2.3)
         self.max_acc_lims = 0.5
         self.max_decel_lims = -0.5
         
@@ -95,7 +95,13 @@ class ProceedTrajectoryConstraints(TrajectoryConstraints):
             raise
         init_vel = waypoint_vel_sampling_range[0][0]
         TrajectoryConstraints.__init__(self,init_vel, waypoints)
-        waypoint_vel_sampling_range = [x for idx,x in enumerate(waypoint_vel_sampling_range) if idx not in self.dup_indxs]
+        if len(self.dup_indxs) > 0 and max(self.dup_indxs) == len(waypoints)-1:
+            end_vel =  waypoint_vel_sampling_range[-1]
+            waypoint_vel_sampling_range = [x for idx,x in enumerate(waypoint_vel_sampling_range) if idx not in self.dup_indxs]
+            waypoint_vel_sampling_range = waypoint_vel_sampling_range[:-1] + [end_vel]
+        else:
+            waypoint_vel_sampling_range = [x for idx,x in enumerate(waypoint_vel_sampling_range) if idx not in self.dup_indxs]
+        
         self.waypoint_vel_sampling_range = waypoint_vel_sampling_range
         #if len(waypoint_vel_sampling_range) > 2 and all_equal(waypoint_vel_sampling_range[1:-1]) and waypoint_vel_sampling_range[1] == (None,):
         #    self.waypoint_vel_sampling_range = waypoint_vel_sampling_range[0:1] + [(None,) if i != len(np.arange(1,len(self.waypoints)-1))//2 else (np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][0]]),np.mean([waypoint_vel_sampling_range[0][0],waypoint_vel_sampling_range[-1][1]])) for i in np.arange(1,len(self.waypoints)-1)] + waypoint_vel_sampling_range[-1:]
@@ -157,9 +163,9 @@ class TriangulationCurve:
             if x < 0:
                 return 0
             elif self.a <= x <= self.c:
-                return self.v0 * ((2*(x-self.a))/((self.b-self.a)*(self.c-self.a)))
+                return self.v0 * ((2*(x-self.a))/((self.b-self.a)*(self.c-self.a))) if (self.b-self.a)*(self.c-self.a) !=0 else 0
             elif self.c < x <= self.b:
-                return self.v0 * ((2*(self.b-x))/((self.b-self.a)*(self.b-self.c)))
+                return self.v0 * ((2*(self.b-x))/((self.b-self.a)*(self.b-self.c))) if (self.b-self.a)*(self.b-self.c) !=0 else 0
             else:
                 return 0
             
@@ -168,9 +174,9 @@ class TriangulationCurve:
             if x < 0:
                 return 0
             elif self.a <= x <= self.c:
-                return self.v0 * (2/((self.b-self.a)*(self.c-self.a)))
+                return self.v0 * (2/((self.b-self.a)*(self.c-self.a))) if (self.b-self.a)*(self.c-self.a) !=0 else 0
             elif self.c < x < self.b:
-                return self.v0 * ((-2)/((self.b-self.a)*(self.b-self.c)))
+                return self.v0 * ((-2)/((self.b-self.a)*(self.b-self.c))) if (self.b-self.a)*(self.b-self.c) !=0 else 0
             else:
                 return 0
         
@@ -211,7 +217,11 @@ plt.show()
     
 WAIT_MANEUVERS = ['wait']        
 
-
+class InvalidCenterlineException(Exception):
+    
+    def __init__(self,message):
+        super().__init__(message)
+        
 class TrajectoryPlanner:
     
     show_plots = False
@@ -219,20 +229,22 @@ class TrajectoryPlanner:
     
     
     def __init__(self,traj_constr_obj, maneuver, mode, horizon):
-        '''
-        if maneuver in WAIT_MANEUVERS and isinstance(traj_constr_obj, ProceedTrajectoryConstraints):
-            raise("Wait maneuvers should be passed WaitTrajectoryConstraints object")
-        if maneuver not in WAIT_MANEUVERS and isinstance(traj_constr_obj, WaitTrajectoryConstraints):
-            raise("Proceed maneuvers should be passed ProceedTrajectoryConstraints object")
-        '''
         self.centerline = traj_constr_obj.waypoints 
         if isinstance(traj_constr_obj, ProceedTrajectoryConstraints):
             self.waypoint_vel_sampling_range = traj_constr_obj.waypoint_vel_sampling_range
         if len(traj_constr_obj.waypoints) > 3 and isinstance(traj_constr_obj, ProceedTrajectoryConstraints):
-            _simplified_waypoints = list(linestring.LineString(traj_constr_obj.waypoints).simplify(tolerance=2).coords)
+            wp_linestr = linestring.LineString(traj_constr_obj.waypoints)
+            _simplified_waypoints = list(wp_linestr.simplify(tolerance=2/wp_linestr.length).coords)
             removal_indxs = [idx for idx,x in enumerate(traj_constr_obj.waypoints) if x not in _simplified_waypoints]
             self.waypoint_vel_sampling_range = [x for idx,x in enumerate(traj_constr_obj.waypoint_vel_sampling_range) if idx not in removal_indxs]
             self.centerline = _simplified_waypoints
+        if len(self.centerline) < 2:
+            raise InvalidCenterlineException("centerline too short")
+        '''
+        if maneuver == 'proceed':
+            plt.plot([x[0] for x in self.centerline],[x[1] for x in self.centerline],'x')
+        plt.show()
+        '''
         self.traj_constr_obj = traj_constr_obj
         self.v0 = traj_constr_obj.init_vel
         self.vel_pts = None
@@ -274,12 +286,19 @@ class TrajectoryPlanner:
                 if v is not None:
                     _v.append(v)
                 else:
-                    nxt_valid_indx = next(i+idx for idx,item in enumerate(vp[i:]) if item is not None)
-                    prev_valid_indx = next(i-idx for idx,item in enumerate(reversed(vp[:i+1])) if item is not None)
-                    #prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
-                    prev_valid_prop = (s_pts[i]-s_pts[prev_valid_indx])/(s_pts[nxt_valid_indx]-s_pts[prev_valid_indx])
-                    intpl_v = (1-prev_valid_prop)*vp[prev_valid_indx] + prev_valid_prop*vp[nxt_valid_indx]
-                    _v.append(max(0.1,intpl_v))
+                    try:
+                        nxt_valid_indx = next(i+idx for idx,item in enumerate(vp[i:]) if item is not None)
+                        prev_valid_indx = next(i-idx for idx,item in enumerate(reversed(vp[:i+1])) if item is not None)
+                        #prev_valid_prop = math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1]) / (math.hypot(self.centerline[prev_valid_indx][0]-self.centerline[nxt_valid_indx][0], self.centerline[prev_valid_indx][1]-self.centerline[nxt_valid_indx][1]) + math.hypot(self.centerline[0][0]-self.centerline[prev_valid_indx][0], self.centerline[0][1]-self.centerline[prev_valid_indx][1])) 
+                        prev_valid_prop = (s_pts[i]-s_pts[prev_valid_indx])/(s_pts[nxt_valid_indx]-s_pts[prev_valid_indx])
+                        intpl_v = (1-prev_valid_prop)*vp[prev_valid_indx] + prev_valid_prop*vp[nxt_valid_indx]
+                        _v.append(max(0.1,intpl_v))
+                    except:
+                        f=1
+                        print(vp)
+                        print(self.waypoint_vel_sampling_range)
+                        print(self.traj_constr_obj.principal_agent.waypoint_segments)
+                        raise
             self.all_velocity_profiles.append(_v)
         
     
@@ -318,9 +337,12 @@ class TrajectoryPlanner:
                     raise
             else:
                 #self.cs_x = interp1d(indx,[x[0] for x in wp])
-                self.cs_x = UnivariateSpline(indx,[x[0] for x in wp],k=1)
-                xspl_order = 1
-            
+                try:
+                    self.cs_x = UnivariateSpline(indx,[x[0] for x in wp],k=1)
+                    xspl_order = 1
+                except:
+                    print(indx,[x[0] for x in wp])
+                    raise
             if len(indx) > 2 and not (min([x[1] for x in wp]) == max([x[1] for x in wp])):
                 try:
                     _x = indx
@@ -424,7 +446,7 @@ class TrajectoryPlanner:
         if isinstance(self.traj_constr_obj, EmergencyBrakingConstraints):
             return self.generate_emergency_braking()
         if isinstance(self, PedestrianTrajectoryPlanner):
-            return self.generate_pedestrian_wait_trajectory() if self.maneuver == 'ped_wait' else self.generate_pedestrian_wait_trajectory() 
+            return self.generate_pedestrian_wait_trajectory() if self.maneuver == 'ped_wait' else self.generate_pedestrian_walk_trajectory() 
         if round(self.v0,2) < 0.1 and isinstance(self.traj_constr_obj, WaitTrajectoryConstraints):
             yaw = math.atan2(self.cs_y.derivative()(0), self.cs_x.derivative()(0))
             traj = []
@@ -537,6 +559,8 @@ class TrajectoryPlanner:
                     all_trajs[m].append(traj)
                 if self.show_plots:
                     plt.plot([x[0] for x in traj], [x[3] for x in traj])
+                if len(all_trajs[m]) >= 5:
+                    break
         self.all_trajectories = all_trajs
         if self.show_plots:
             plt.title("all velocity profles")
@@ -655,8 +679,8 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                 if xidx == 0:
                     continue
                 else:
-                    _u = self.cs_v_s(s_pts[xidx-1])
-                    _v =  self.cs_v_s(s_pts[xidx])
+                    _u = max(0,self.cs_v_s(s_pts[xidx-1]))
+                    _v =  max(0,self.cs_v_s(s_pts[xidx]))
                     _S = s_pts[xidx]-s_pts[xidx-1]
                     if abs(_u-0.0) < 1e-05 and abs(_v-0.0) < 1e-05:
                         time_pts.append(np.inf)
@@ -672,6 +696,7 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
                     ''' The velocity is zero so it cannot proceed any further'''
                     continue
                 else:
+                    print(time_pts,s_pts)
                     raise
             
             if time_pts[-1] > 8:
@@ -821,11 +846,21 @@ class VehicleTrajectoryPlanner(TrajectoryPlanner):
 
 class PedestrianTrajectoryPlanner(TrajectoryPlanner):
     
+    def getExtrapoledPoint(self,p1,p2,dist):
+        'Creates a line extrapoled in p1->p2 direction'
+        seg_len = math.hypot(p2[0]-p1[0],p2[1]-p1[1])
+        EXTRAPOL_RATIO = (dist+seg_len)/seg_len
+        a = p1
+        b = (p1[0]+EXTRAPOL_RATIO*(p2[0]-p1[0]), p1[1]+EXTRAPOL_RATIO*(p2[1]-p1[1]) )
+        return b
+    
     def generate_pedestrian_wait_trajectory(self):
         all_trajs = {'normal':[],'aggressive':[]}
+        all_lengths,dec_samples = [],[]
         for idx in np.arange(10):
             u,s = self.traj_constr_obj.init_vel, 0
-            dec_sample = self.traj_constr_obj.max_decel_lims  * np.random.random_sample()
+            dec_sample = abs(self.traj_constr_obj.max_decel_lims+0.25) * np.random.random_sample() + min(self.traj_constr_obj.max_decel_lims,-0.25)
+            dec_samples.append(dec_sample)
             _u = u
             traj = []
             
@@ -837,18 +872,28 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
                 wp_linestr = linestring.LineString(self.traj_constr_obj.waypoints)
             yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
             traj.append((0,self.agent_state.x,self.agent_state.y,self.traj_constr_obj.init_vel,self.traj_constr_obj.max_decel_lims,0,(self.traj_constr_obj.init_vel**2)*self.curvature(s/self.arcl),yaw,s))    
-            for st in np.arange(.1,self.horizon+.1,.1):
+            time_st = np.arange(0,self.horizon+.1,.1)
+            for st in time_st:
                 _v = max(_u + dec_sample*.1, 0)
                 _s = max(_u*0.1 + dec_sample*0.1**2, 0)
                 s += _s
-                traj_pt = wp_linestr.interpolate(s)
+                if s > wp_linestr.length:
+                    wp_coords = list(shape(wp_linestr).coords)
+                    traj_pt = self.getExtrapoledPoint(p1=(wp_coords[-2][0],wp_coords[-2][1]),p2=(wp_coords[-1][0],wp_coords[-1][1]),dist=s-wp_linestr.length)
+                    traj_pt = Point(traj_pt[0],traj_pt[1])
+                else:
+                    traj_pt = wp_linestr.interpolate(s)
                 yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl)) if s > 0 else traj[-1][7]
                 traj.append((st,traj_pt.x,traj_pt.y,_v,self.traj_constr_obj.max_decel_lims if _v > 0 else 0,0,(_v**2)*self.curvature(s/self.arcl) if s>0 and _v >0 else 0,yaw,s))
+                if _v > _u:
+                    f=1
                 _u = _v
+                
             if dec_sample <=  self.traj_constr_obj.max_decel_lims/2:
                 all_trajs['normal'].append(traj)
             else:
                 all_trajs['aggressive'].append(traj)
+            all_lengths.append(linestring.LineString([(x[1],x[2]) for x in traj]).length)
         self.all_trajectories = all_trajs
         return all_trajs
             
@@ -866,18 +911,30 @@ class PedestrianTrajectoryPlanner(TrajectoryPlanner):
             else:
                 wp_linestr = linestring.LineString(self.traj_constr_obj.waypoints)
             yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl))
-            traj.append((0,self.agent_state.x,self.agent_state.y,self.traj_constr_obj.init_vel,self.traj_constr_obj.max_decel_lims,0,(self.traj_constr_obj.init_vel**2)*self.curvature(s/self.arcl),yaw,s))    
-            for st in np.arange(.1,self.horizon+.1,.1):
-                if self.traj_constr_obj.walk_vel_range[0] <= _u <= self.traj_constr_obj.walk_vel_range[1]:
+            traj.append((0,self.agent_state.x,self.agent_state.y,self.traj_constr_obj.init_vel,0,0,(self.traj_constr_obj.init_vel**2)*self.curvature(s/self.arcl),yaw,s))    
+            time_st = np.arange(0,self.horizon+.1,.1)
+            if idx == 0:
+                target_vel = _u
+            else:
+                target_vel = abs(self.traj_constr_obj.walk_vel_range[1]-1) * np.random.random_sample() + min(self.traj_constr_obj.walk_vel_range[1],1)
+            for st in time_st:
+                if _u == target_vel :
                     acc_sample = 0
-                else:
+                elif _u < target_vel:
                     acc_sample = self.traj_constr_obj.max_acc_lims * np.random.random_sample()
+                else:
+                    acc_sample = -self.traj_constr_obj.max_acc_lims * np.random.random_sample()
                 _v = max(_u + acc_sample*.1, 0)
                 _s = max(_u*0.1 + acc_sample*0.1**2, 0)
                 s += _s
-                traj_pt = wp_linestr.interpolate(s)
+                if s > wp_linestr.length:
+                    wp_coords = list(shape(wp_linestr).coords)
+                    traj_pt = self.getExtrapoledPoint(p1=(wp_coords[-2][0],wp_coords[-2][1]),p2=(wp_coords[-1][0],wp_coords[-1][1]),dist=s-wp_linestr.length)
+                    traj_pt = Point(traj_pt[0],traj_pt[1])
+                else:
+                    traj_pt = wp_linestr.interpolate(s)
                 yaw = math.atan2(self.cs_y.derivative()(s/self.arcl), self.cs_x.derivative()(s/self.arcl)) if s > 0 else traj[-1][7]
-                traj.append((st,traj_pt.x,traj_pt.y,_v,self.traj_constr_obj.max_decel_lims if _v > 0 else 0,0,(_v**2)*self.curvature(s/self.arcl) if s>0 and _v >0 else 0,yaw,s))
+                traj.append((st,traj_pt.x,traj_pt.y,_v,acc_sample,0,(_v**2)*self.curvature(s/self.arcl) if s>0 and _v >0 else 0,yaw,s))
                 _u = _v
             if max([x[3] for x in traj]) <= np.mean(list(self.traj_constr_obj.walk_vel_range)):
                 all_trajs['normal'].append(traj)

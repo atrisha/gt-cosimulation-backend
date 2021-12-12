@@ -13,7 +13,7 @@ from scipy.ndimage import gaussian_filter1d
 import math
 from equilibrium.range_estimation import MinDistanceGapModel
 import rg_constants
-from maps.map_info import ParkingPullout
+from maps.map_info import ParkingPullout, NYCPedVeh
 
 
 
@@ -205,14 +205,23 @@ class UniWeberAnalytics:
         
         #plot_traffic_regions(ax)
         if im_type is None:
-            img = plt.imread("D:\\behavior modeling\\background.jpg")
-            ax.imshow(img, extent=[538780, 538890, 4813970, 4814055])
-            #ax.imshow(img, extent=[538775, 538885, 4813975, 4814060])
+            plt.xlim(538680, 538890)
+            plt.ylim(4813970, 4814155)
         else:
-            img = plt.imread("D:\\behavior modeling\\assorted_figures\\park_pullout_background.png")
-            ax.imshow(img, extent = ParkingPullout.img_extent)
-        
-        
+            if im_type == 'uni_weber':
+                img = plt.imread("D:\\behavior modeling\\background.jpg")
+                ax.imshow(img, extent=[538780, 538890, 4813970, 4814055])
+                #ax.imshow(img, extent=[538775, 538885, 4813975, 4814060])
+            elif im_type == 'parking_pullout':
+                img = plt.imread("D:\\behavior modeling\\assorted_figures\\park_pullout_background.png")
+                ax.imshow(img, extent = ParkingPullout.img_extent)
+            elif im_type in ['nyc_ped_veh','nyc_veh_veh']:
+                img = plt.imread("D:\\behavior modeling\\assorted_figures\\nyc_background.png")
+                imextent = [598763, 598812, 4512579, 4512552]
+                plt.xlim(598763, 598812)
+                plt.xlim(4512579, 4512552)
+                #ax.imshow(img, extent = imextent)
+            
         # initialization function: plot the background of each frame
         patches = lines + rounds
         def init():
@@ -308,7 +317,10 @@ class RGvisualize():
         plt.show()
 
 if __name__ == '__main__':
-    vis = RGvisualize()
-    vis.plot_all_paths()
+    #vis = RGvisualize()
+    #vis.plot_all_paths()
+    
+    vis = Visualization()
+    vis.show_nyc_trajectories_dynamic()
                 
         

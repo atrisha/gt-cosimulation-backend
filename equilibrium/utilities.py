@@ -46,6 +46,11 @@ class Utilities:
             brk = 1
         return u
     
+    def gen_dist_utils(self,dist,parm=7):
+        #parm = 7
+        u = scipy.special.erf(1.75*(dist - parm) / (2 * math.sqrt(3)))
+        return u
+    
     def generate_safety_utils(self,ped_trajectory,veh_trajectory):
         dist_gap = min([math.hypot(x[1]-y[1], x[2]-y[2]) for x,y in zip(ped_trajectory,veh_trajectory)])
         safe_utils = self.exp_dist_payoffs(dist_gap)
@@ -87,7 +92,18 @@ class Utilities:
                 return safe_util
             else:
                 return prog_util
-            
+    
+    def plot_only_safety(self):
+        plt.figure()
+        plt.title('safety util')
+        plt.xlabel('distance gap (meters)')
+        plt.ylabel('utility')
+        X = [x for x in np.arange(0,20,.25)]
+        Y = [self.gen_dist_utils(x,9) for x in np.arange(0,20,.25)]
+        plt.plot(X,Y)
+        plt.show()
+                
+    
     def plot(self):
         plt.figure()
         plt.title('safety util')
@@ -159,5 +175,5 @@ class Utilities:
        
 if __name__ == '__main__':
     u = Utilities()
-    u.plot()
+    u.plot_only_safety()
         

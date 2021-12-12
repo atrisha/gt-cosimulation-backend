@@ -384,7 +384,7 @@ class TreeBuilder:
     
     def construct_centerline(self,dist,ag,v0,maneuver_constraints,point):
         path = maneuver_constraints[ag]['agent_state'].waypoints
-        if rg_constants.SCENE_TYPE == ('synthetic','merge_before_intersection'):
+        if rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['merge_before_intersection','nyc_veh_veh']:
             waypoint_velocity = maneuver_constraints[ag]['maneuvers']['turn'].waypoint_vel_sampling_range
         else:
             waypoint_velocity = maneuver_constraints[ag]['maneuvers']['turn'].waypoint_vel_sampling_range if ag == 'agent_1' else maneuver_constraints[ag]['maneuvers']['track_speed'].waypoint_vel_sampling_range
@@ -578,7 +578,9 @@ class TreeBuilder:
                                 waypt = maneuver_constraints[ag]['maneuvers']['ped_walk'].waypoints
                                 generating_manv_l = [x for x in maneuver_constraints[ag]['maneuvers'].keys() if x != manv]
                                 parent_traj_id = init_st[4]
+                                act = Actions(maneuver_constraints)
                                 for generating_manv in generating_manv_l:
+                                    step_horizon = self.horizon - ts
                                     trajs = act.generate_pedestrian_agent_action(ts, v, waypt, None, generating_manv, ag, step_horizon,maneuver_constraints[ag]['agent_state'],parent_traj_arcl)
                                     if self.initialize_db:
                                         self.insert_trajs_into_db(trajs, ag, ts, parent_traj_id)
@@ -1081,6 +1083,7 @@ class GameTree:
         if hasattr(eq_class, 'set_oneq_label'):
             eq_class.set_oneq_label(self,'on_mspe')
             eq_class.set_oneq_label(self,'on_uspe')
+            eq_class.set_oneq_label(self,'on_espe')
     
     def print_tree(self):
         if not hasattr(self, 'results'):
@@ -1670,7 +1673,15 @@ def results_all_scenarios(dataset):
                 print('---------')
                 pickle_dump_to_dir(os.path.join(results_dir_path,'_'.join(row).replace('.',',')+'.results'), gt.results)
                 line_count += 1
-            
+
+def check_singular(model_dict):
+    cts = [len(v) for k,v in model_dict.items() if len(v) > 0]
+    if len(cts) == 2:
+        return True
+    else:
+        return False
+    
+        
 
 def plot_all_results(dataset):
     if dataset == 'intersection_dataset':
@@ -1684,6 +1695,8 @@ def plot_all_results(dataset):
     hit_ct = {'uspe':0,'mspe':0,'auto_resp':0,'ac':0,'nac':0,'robust':0,'no_exp.':0,'ql0':0}  
     range_var = {'auto_resp':[],'ac':[],'nac':[],'robust':[],'uspe':[],'mspe':[],'ql0':[]}
     pooling_map = {'auto_resp':OrderedDict(),'ac':OrderedDict(),'nac':OrderedDict(),'robust':OrderedDict(),'uspe':OrderedDict(),'mspe':OrderedDict(),'ql0':OrderedDict()}
+    model_pooling = [dict(),dict()]
+    converged_levels = []
     disagreement_map = {k:{'ag1':[],'ag2':[]} for k in itertools.product(pooling_map.keys(), pooling_map.keys())}
     line_count,tot = 0,0
     resultfiles = [f for f in listdir(results_dir_path) if isfile(join(results_dir_path, f))]
@@ -1941,28 +1954,52 @@ def plot_all_results(dataset):
                     #print(list(set([x[0] for x in node_res['uspe']])))
                     #print(list(set([x[1] for x in node_res['uspe']])))
                 no_expl = True
-                if l == 6:    
-                    for ag in ['ag1','ag2']:
+                converged_level = None
+                if l == 6: 
+                    _model_pooling = ([],[])   
+                    for _agidx,ag in enumerate(['ag1','ag2']):
                         for m,tc in level_pooling_map[(l,ag)].items():
                             if m not in pooling_map:
                                 pooling_map[m] = OrderedDict()
+
                             if len(tc) >0 and len(level_pooling_map[(4,ag)][m]) >0 and len(level_pooling_map[(2,ag)][m]) >0:
+                                ''' check that the type of the agent along the equilibrium response for the model is same'''
                                 type_list = list(set.intersection(set(list(tc.keys())[0]), set(list(level_pooling_map[(4,ag)][m].keys())[0]), set(list(level_pooling_map[(2,ag)][m].keys())[0])))
                                 if len(type_list) > 0:
                                     no_expl = False
                                     if m not in hit_ct:
                                         hit_ct[m] = 0
                                     hit_ct[m] += 0.5
+                                    if m[0] != 'q':
+                                        if m not in _model_pooling[_agidx]:
+                                            _model_pooling[_agidx].append(m)
                                 if tuple(type_list) not in pooling_map[m]:
                                     pooling_map[m][tuple(type_list)] = 1
                                 else:
                                     pooling_map[m][tuple(type_list)] += 1
+                                if check_singular(level_pooling_map[(l,ag)]):
+                                    ''' scenario converged to one model '''
+                                    if check_singular(level_pooling_map[(4,ag)]):
+                                        if check_singular(level_pooling_map[(2,ag)]):
+                                            converged_level = 2
+                                        else:
+                                            converged_level = 4
+                                    else:
+                                        converged_level = 6
+                                        
                     tot += 1
                     if no_expl:
                         if 'no_exp' not in hit_ct:
                             hit_ct['no_exp'] = 1
                         else:
                             hit_ct['no_exp'] += 1
+                    for _agidx in [0,1]:
+                        if tuple(list(OrderedDict.fromkeys(_model_pooling[_agidx]).keys())) not in model_pooling[_agidx]:
+                            model_pooling[_agidx][tuple(list(OrderedDict.fromkeys(_model_pooling[_agidx]).keys()))] = 1
+                        else:
+                            model_pooling[_agidx][tuple(list(OrderedDict.fromkeys(_model_pooling[_agidx]).keys()))] += 1
+                    if converged_level is not None:
+                        converged_levels.append(converged_level)
                 '''    
                 if node_res['mspe'] is not False:
                     hit_ct['mspe'] += 1
@@ -2073,11 +2110,22 @@ def plot_all_results(dataset):
         for t1,t2 in v.items():
             mean_type += sum(list(t1))*t2
         mean_type = mean_type / sum(list(v.values())) if sum(list(v.values())) !=0 else -10
-        print(k,mean_type)
+        ''' find mean beliefs range weighted by occurance'''
+        mean_belief_range =  sum([len(list(t1))*t2 for t1,t2 in v.items()])/sum(list(v.values()))
+        print(k,mean_type,mean_belief_range)
     print('---------')
     print('for scene type',scene_type)
     for k,v in hit_ct.items():
         print(k,':',round(v/tot,5))
+    print('-------model pooling------')
+    for _agidx in [0,1]:
+        print('agent:',_agidx+1)
+        _d = sum(list( model_pooling[_agidx].values()))
+        for k,v in model_pooling[_agidx].items():
+            print(k,v/_d)
+    print('-----converged levels-----')
+    if len(converged_levels) > 0:
+        print(mean(converged_levels))
     plt.show()
                   
 def plot_velocity_profiles(gt,scene_def,freq):

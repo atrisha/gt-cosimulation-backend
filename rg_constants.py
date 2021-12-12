@@ -21,11 +21,11 @@ PROCEED_VEL_RANGES = {'prep-left-turn':(0.5,12),
                       'exec-left-turn':(0.5,12),
                       'prep-right-turn':(0.5,8),
                       'exec-right-turn':(0.5,8),
-                      'exit-lane':(8,17),
-                      'left-turn-lane':(5,17),
-                      'through-lane-entry':(5,17),
-                      'through-lane':(5,17),
-                      'right-turn-lane':(5,17)}
+                      'exit-lane':(8,18),
+                      'left-turn-lane':(5,18),
+                      'through-lane-entry':(5,18),
+                      'through-lane':(5,18),
+                      'right-turn-lane':(5,18)}
 def get_db_path(file_id = None):
     uni_weber_db_fileid = constants.CURRENT_FILE_ID if file_id is None else file_id
     uni_weber_dbpath = os.path.join(UNI_WEBER_DB_HOME,uni_weber_db_fileid,'uni_weber_'+uni_weber_db_fileid+'.db')

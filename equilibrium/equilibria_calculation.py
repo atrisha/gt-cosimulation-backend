@@ -136,11 +136,11 @@ class Equilibria:
         peds_eq_act = eq_strat.y
         i,j = belief_index[0], belief_index[1]
         veh_br_key = min(veh_br_map.keys(), key=lambda x:abs(x-peds_eq_act))
-        veh_br_range = (veh_br_map[veh_br_key][0][i,j], veh_br_map[veh_br_key][1][i,j], veh_br_map[veh_br_key][2][i,j])
+        veh_br_range = (veh_br_map[veh_br_key][0][i,j], veh_br_map[veh_br_key][1][i,j], veh_br_map[veh_br_key][2][i,j], veh_br_map[veh_br_key][3][i,j])
         peds_br_key = min(peds_br_map.keys(), key=lambda x:abs(x-veh_eq_act))
         ''' for agent_2, the indexes should be flipped since i is always agent_1, and agent_2 br matrix had i as agent_2 threshold'''
         ''' on second thought, they need not be flipped, because peds_br_map has the entries based on the gamma matrix[1]'''
-        peds_br_range = (peds_br_map[peds_br_key][0][i,j], peds_br_map[peds_br_key][1][i,j], peds_br_map[peds_br_key][2][i,j])
+        peds_br_range = (peds_br_map[peds_br_key][0][i,j], peds_br_map[peds_br_key][1][i,j], peds_br_map[peds_br_key][2][i,j], peds_br_map[peds_br_key][3][i,j])
         return (veh_br_range,peds_br_range)
     
     def __init__(self,run_context = None):
@@ -172,7 +172,7 @@ class Equilibria:
            
     def calc_extended_util(self,ag1_traj_frag,ag2_traj_frag,n):
         if rg_constants.SCENE_TYPE[0] == 'REAL' or (rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['merge_before_intersection']) \
-         or rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['parking_pullout','nyc_ped_veh']:
+         or rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['parking_pullout','nyc_ped_veh','nyc_veh_veh']:
             ag1_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_1'][ag1_traj_frag.get_last().manv]
             try:
                 ag2_motion_obj = self.run_context.maneuver_constraints['motion_info']['agent_2'][ag2_traj_frag.get_last().manv]
@@ -205,6 +205,22 @@ class Equilibria:
                     ag1_ext_utils = (-1,0.5)
                     ag2_ext_utils = (0.5,0)
                     return [ag1_ext_utils,ag2_ext_utils]
+                else:
+                    return [(mean_safe_util,None), (mean_safe_util,None)]
+            elif rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['nyc_veh_veh']:
+                ag2_manvs = n.path_from_root['agent_2'].manv_from_root
+                if not (ag2_manvs[0] == 'wait' and ag2_manvs[1] == 'wait'):
+                    ag2_ext_utils = (max(-1,mean_safe_util-0.25),None)
+                    #ag2_ext_utils = (mean_safe_util,None)
+                    return [(mean_safe_util,None), ag2_ext_utils]
+                else:
+                    return [(mean_safe_util,None), (mean_safe_util,None)]
+            elif rg_constants.SCENE_TYPE[0] == 'synthetic' and rg_constants.SCENE_TYPE[1] in ['nyc_ped_veh']:
+                ag1_manvs = n.path_from_root['agent_1'].manv_from_root
+                if not (ag1_manvs[0] == 'wait' and ag1_manvs[1] == 'wait'):
+                    ag1_ext_utils = (max(-1,mean_safe_util-0.25),None)
+                    #ag2_ext_utils = (mean_safe_util,None)
+                    return [ag1_ext_utils, (mean_safe_util,None)]
                 else:
                     return [(mean_safe_util,None), (mean_safe_util,None)]
             else:
@@ -843,52 +859,64 @@ class SatisficingEquilibria(Equilibria):
             for j in np.arange(gt.root.equilibrium_solutions.shape[1]):
                 eq_2l = []
                 for eq in gt.root.equilibrium_solutions[i,j]:
-                    ag1_tl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[2])
-                    ag2_tl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[2])
+                    ag1_tl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else ((eq.veh_eq_acts[0], eq.veh_eq_acts[2]) if eqtype_label == 'on_uspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[3]))
+                    ag2_tl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else ((eq.peds_eq_acts[0], eq.peds_eq_acts[2]) if eqtype_label == 'on_uspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[3]))
                     eq_2l += get_within_node(l2_nodes, ag1_tl_range, ag2_tl_range)
                 for n2l in l2_nodes:
                     if not hasattr(n2l, eqtype_label):
                         if eqtype_label == 'on_mspe':
                             n2l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
-                        else:
+                        elif eqtype_label == 'on_uspe':
                             n2l.on_uspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                        else:
+                            n2l.on_espe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
                     if n2l._ext_id in eq_2l:
                         if eqtype_label == 'on_mspe':
                             n2l.on_mspe[i,j] = True
-                        else:
+                        elif eqtype_label == 'on_uspe':
                             n2l.on_uspe[i,j] = True
+                        else:
+                            n2l.on_espe[i,j] = True
                         eq_4l = []
                         for eq in n2l.equilibrium_solutions[i,j]:
-                            ag1_4ltl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[2])
-                            ag2_4ltl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[2])
+                            ag1_4ltl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else ((eq.veh_eq_acts[0], eq.veh_eq_acts[2]) if eqtype_label == 'on_uspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[3]))
+                            ag2_4ltl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else ((eq.peds_eq_acts[0], eq.peds_eq_acts[2]) if eqtype_label == 'on_uspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[3]))
                             eq_4l += get_within_node(n2l.children, ag1_4ltl_range, ag2_4ltl_range)
                         for n4l in n2l.children:
                             if not hasattr(n4l, eqtype_label):
                                 if eqtype_label == 'on_mspe':
                                     n4l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
-                                else:
+                                elif eqtype_label == 'on_uspe':
                                     n4l.on_uspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                                else:
+                                    n4l.on_espe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
                             if n4l._ext_id in eq_4l:
                                 if eqtype_label == 'on_mspe':
                                     n4l.on_mspe[i,j] = True
-                                else:
+                                elif eqtype_label == 'on_uspe':
                                     n4l.on_uspe[i,j] = True
+                                else:
+                                    n4l.on_espe[i,j] = True
                                 eq_6l = []
                                 for eq in n4l.equilibrium_solutions[i,j]:
-                                    ag1_6ltl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[2])
-                                    ag2_6ltl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[2])
+                                    ag1_6ltl_range = (eq.veh_eq_acts[0], eq.veh_eq_acts[1]) if eqtype_label == 'on_mspe' else ((eq.veh_eq_acts[0], eq.veh_eq_acts[2]) if eqtype_label == 'on_uspe' else (eq.veh_eq_acts[0], eq.veh_eq_acts[3]))
+                                    ag2_6ltl_range = (eq.peds_eq_acts[0], eq.peds_eq_acts[1]) if eqtype_label == 'on_mspe' else ((eq.peds_eq_acts[0], eq.peds_eq_acts[2]) if eqtype_label == 'on_uspe' else (eq.peds_eq_acts[0], eq.peds_eq_acts[3]))
                                     eq_6l += get_within_node(n4l.children, ag1_6ltl_range, ag2_6ltl_range)
                                 for n6l in n4l.children:
                                     if not hasattr(n6l, eqtype_label):
                                         if eqtype_label == 'on_mspe':
                                             n6l.on_mspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
-                                        else:
+                                        elif eqtype_label == 'on_uspe':
                                             n6l.on_uspe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
+                                        else:
+                                            n6l.on_espe = np.full(shape = gt.root.equilibrium_solutions.shape, fill_value=False)
                                         if n6l._ext_id in eq_6l:
                                             if eqtype_label == 'on_mspe':
                                                 n6l.on_mspe[i,j] = True
-                                            else:
+                                            elif eqtype_label == 'on_uspe':
                                                 n6l.on_uspe[i,j] = True
+                                            else:
+                                                n6l.on_espe[i,j] = True
                         
                         
                             
@@ -896,7 +924,7 @@ class SatisficingEquilibria(Equilibria):
         
     
     def calc_equilibria(self,veh_acts : List[TrajectoryFragment], ped_acts : List[TrajectoryFragment], node, last_decision_level):
-        
+        eps = 0.1
         type(node).progress_ctr += 1
         #print('processing node level',node.level,'id:',node._ext_id)
         print('solving node',type(node).progress_ctr,'/',type(node).tree_size)
@@ -969,7 +997,9 @@ class SatisficingEquilibria(Equilibria):
             upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:,:], resp_vect_sorted.shape[0], axis=0)
             lower_bound_matrix = np.copy(resp_vect_sorted)
             lower_bound_safety_matrix = np.copy(resp_vect_sorted)
+            lower_bound_eps_matrix = np.copy(resp_vect_sorted)
             lower_safety_bound_matrix_check = resp_vect_sorted['safe_utils'] >= gamma_matrix[1]
+            lower_eps_bound_matrix_check = abs(resp_vect_sorted['utils']-resp_vect_sorted[0]['utils']) <= eps
             _x1 = resp_vect_sorted['manv'] == upper_bound_matrix['manv']
             _x2 = resp_vect_sorted['utils'] == upper_bound_matrix['utils']
             _x3 = np.logical_or(_x1,_x2)
@@ -987,18 +1017,27 @@ class SatisficingEquilibria(Equilibria):
             else:
                 selected_indices = np.argmin(lower_safety_bound_matrix_check, axis=0) - 1
                 lower_bound_safety_matrix = np.take_along_axis(lower_bound_safety_matrix,selected_indices[np.newaxis],axis=0)[0]
+            if np.all(lower_eps_bound_matrix_check):
+                lower_bound_eps_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(lower_eps_bound_matrix_check)):
+                lower_bound_eps_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(lower_eps_bound_matrix_check, axis=0) - 1
+                lower_bound_eps_matrix = np.take_along_axis(lower_bound_eps_matrix,selected_indices[np.newaxis],axis=0)[0]
+            
             
             upper_bound_matrix = upper_bound_matrix[0,:,:]
             
             #print('pedestrian responding',ct,'/',N,'to',v_traj_l)
             
             if v_traj_l not in peds_best_response:
-                peds_best_response[v_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix), np.copy(lower_bound_safety_matrix))
+                peds_best_response[v_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix), np.copy(lower_bound_safety_matrix), np.copy(lower_bound_eps_matrix))
             else:
                 _merged_arr_ub = np.where(peds_best_response[v_traj_l][0]['utils'] > upper_bound_matrix['utils'], peds_best_response[v_traj_l][0], upper_bound_matrix)
                 _merged_arr_lb = np.where(peds_best_response[v_traj_l][1]['utils'] < lower_bound_matrix['utils'], peds_best_response[v_traj_l][1], lower_bound_matrix)
                 _merged_arr_s_lb = np.where(peds_best_response[v_traj_l][1]['utils'] < lower_bound_safety_matrix['utils'], peds_best_response[v_traj_l][1], lower_bound_safety_matrix)
-                peds_best_response[v_traj_l] = (_merged_arr_ub, _merged_arr_lb, _merged_arr_s_lb)
+                _merged_arr_e_lb = np.where(peds_best_response[v_traj_l][1]['utils'] < lower_bound_eps_matrix['utils'], peds_best_response[v_traj_l][1], lower_bound_eps_matrix)
+                peds_best_response[v_traj_l] = (np.copy(_merged_arr_ub), np.copy(_merged_arr_lb), np.copy(_merged_arr_s_lb), np.copy(_merged_arr_e_lb))
                 
                 
             
@@ -1089,7 +1128,9 @@ class SatisficingEquilibria(Equilibria):
             upper_bound_matrix = np.repeat(upper_bound_matrix[np.newaxis,:,:], resp_vect_sorted.shape[0], axis=0)
             lower_bound_matrix = np.copy(resp_vect_sorted)
             lower_bound_safety_matrix = np.copy(resp_vect_sorted)
+            lower_bound_eps_matrix = np.copy(resp_vect_sorted)
             lower_safety_bound_matrix_check = resp_vect_sorted['safe_utils'] >= gamma_matrix[0]
+            lower_eps_bound_matrix_check = abs(resp_vect_sorted['utils']-resp_vect_sorted[0]['utils']) <= eps
             _x1 = resp_vect_sorted['manv'] == upper_bound_matrix['manv']
             _x2 = resp_vect_sorted['utils'] == upper_bound_matrix['utils']
             _x3 = np.logical_or(_x1,_x2)
@@ -1109,16 +1150,25 @@ class SatisficingEquilibria(Equilibria):
                 selected_indices = np.argmin(lower_safety_bound_matrix_check, axis=0) - 1
                 lower_bound_safety_matrix = np.take_along_axis(lower_bound_safety_matrix,selected_indices[np.newaxis],axis=0)[0]
             
+            if np.all(lower_eps_bound_matrix_check):
+                lower_bound_eps_matrix = upper_bound_matrix[-1,:,:]
+            elif np.all(np.logical_not(lower_eps_bound_matrix_check)):
+                lower_bound_eps_matrix = upper_bound_matrix[0,:,:]
+            else:
+                selected_indices = np.argmin(lower_eps_bound_matrix_check, axis=0) - 1
+                lower_bound_eps_matrix = np.take_along_axis(lower_bound_eps_matrix,selected_indices[np.newaxis],axis=0)[0]
+            
             upper_bound_matrix = upper_bound_matrix[0,:,:]
             
             #print('vehicle responding',ct,'/',N,'to',p_traj_l)
             if p_traj_l not in veh_best_response:
-                    veh_best_response[p_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix), np.copy(lower_bound_safety_matrix))
+                    veh_best_response[p_traj_l] = (np.copy(upper_bound_matrix), np.copy(lower_bound_matrix), np.copy(lower_bound_safety_matrix), np.copy(lower_bound_eps_matrix))
             else:
                 _merged_arr_ub = np.where(veh_best_response[p_traj_l][0]['utils'] > upper_bound_matrix['utils'], veh_best_response[p_traj_l][0], upper_bound_matrix)
                 _merged_arr_lb = np.where(veh_best_response[p_traj_l][1]['utils'] < lower_bound_matrix['utils'], veh_best_response[p_traj_l][1], lower_bound_matrix)
                 _merged_arr_s_lb = np.where(veh_best_response[p_traj_l][1]['utils'] < lower_bound_safety_matrix['utils'], veh_best_response[p_traj_l][1], lower_bound_safety_matrix)
-                veh_best_response[p_traj_l] = (_merged_arr_ub, _merged_arr_lb, _merged_arr_s_lb)
+                _merged_arr_e_lb = np.where(veh_best_response[v_traj_l][1]['utils'] < lower_bound_eps_matrix['utils'], veh_best_response[v_traj_l][1], lower_bound_eps_matrix)
+                veh_best_response[p_traj_l] = (np.copy(_merged_arr_ub), np.copy(_merged_arr_lb), np.copy(_merged_arr_s_lb), np.copy(_merged_arr_e_lb))
                 
         '''
         if len(veh_best_response) < 2:
@@ -1273,12 +1323,12 @@ class SatisficingEquilibria(Equilibria):
                 if eq_strat is not None:
                     eq_solns = []
                     for eq_item in eq_strat:
-                        veh_eq_resp_ub,veh_eq_resp_lb,veh_eq_resp_lb_uspe = eq_item[0][0], eq_item[0][1], eq_item[0][2]
-                        peds_eq_resp_ub,peds_eq_resp_lb,peds_eq_resp_lb_uspe = eq_item[1][0], eq_item[1][1], eq_item[1][2]
-                        veh_eq_act = (veh_eq_resp_ub[1],veh_eq_resp_lb[1],veh_eq_resp_lb_uspe[1])
-                        veh_eq_utils = (veh_eq_resp_ub[2],veh_eq_resp_lb[2],veh_eq_resp_lb_uspe[2])
-                        peds_eq_act = (peds_eq_resp_ub[1],peds_eq_resp_lb[1],peds_eq_resp_lb_uspe[1])
-                        peds_eq_utils = (peds_eq_resp_ub[2],peds_eq_resp_lb[2],peds_eq_resp_lb_uspe[2])
+                        veh_eq_resp_ub,veh_eq_resp_lb,veh_eq_resp_lb_uspe,veh_eq_resp_lb_espe = eq_item[0][0], eq_item[0][1], eq_item[0][2], eq_item[0][3]
+                        peds_eq_resp_ub,peds_eq_resp_lb,peds_eq_resp_lb_uspe,peds_eq_resp_lb_espe = eq_item[1][0], eq_item[1][1], eq_item[1][2], eq_item[1][3]
+                        veh_eq_act = (veh_eq_resp_ub[1],veh_eq_resp_lb[1],veh_eq_resp_lb_uspe[1],veh_eq_resp_lb_espe[1])
+                        veh_eq_utils = (veh_eq_resp_ub[2],veh_eq_resp_lb[2],veh_eq_resp_lb_uspe[2],veh_eq_resp_lb_espe[2])
+                        peds_eq_act = (peds_eq_resp_ub[1],peds_eq_resp_lb[1],peds_eq_resp_lb_uspe[1],peds_eq_resp_lb_espe[1])
+                        peds_eq_utils = (peds_eq_resp_ub[2],peds_eq_resp_lb[2],peds_eq_resp_lb_uspe[2],peds_eq_resp_lb_espe[2])
                         eqsoln_obj = EquilibriaSolution(veh_best_response,peds_best_response)
                         eqsoln_obj.set_veh_acts(veh_eq_act)
                         eqsoln_obj.set_peds_acts(peds_eq_act)

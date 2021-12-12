@@ -5,7 +5,7 @@ Created on Apr 14, 2021
 '''
 import sqlite3
 from shapely.geometry import LineString, Point
-from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints, EmergencyBrakingConstraints
+from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints, EmergencyBrakingConstraints, PedestrianManeuverConstraints
 from equilibrium.gametree_objects import UnsupportedScenarioException
 import constants
 import numpy as np
@@ -103,13 +103,25 @@ class TrajectoryConstraintsFactory:
         elif maneuver == 'emergency_braking':
             constr = EmergencyBrakingConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints)
             constr.ag_obj = ag_obj
+        elif maneuver == 'proceed':
+            constr = ProceedTrajectoryConstraints(waypoints=ag_obj.waypoints,waypoint_vel_sampling_range=ag_obj.waypoint_vel_samples)
+            constr.lateral_path_sampling = False
+        elif maneuver == 'wait':
+            if ag_obj.velocity <= 1:
+                constr = WaitTrajectoryConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints,stop_horizon_dist_sampling_range=(0,5),stop_horizon_time_sampling_range=(0,3))
+            else:
+                est_stop_dist_range = (max(0,((ag_obj.velocity**2)/10)), max(5,((ag_obj.velocity**2)/2)))
+                constr = WaitTrajectoryConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints,stop_horizon_dist_sampling_range=est_stop_dist_range,stop_horizon_time_sampling_range=(0,4))
+            constr.lateral_path_sampling = False
         else:   
             raise UnsupportedManeuverException(maneuver)
-        constr.lateral_path_sampling = True
+        constr.lateral_path_sampling = True if not hasattr(constr,'lateral_path_sampling') else constr.lateral_path_sampling
         return constr
 
-
-
+    @staticmethod
+    def get_pedestrian_constraint_object(maneuver,ag_obj):
+        constr = PedestrianManeuverConstraints(init_vel=ag_obj.velocity,waypoints=ag_obj.waypoints)
+        return constr
 
 
 

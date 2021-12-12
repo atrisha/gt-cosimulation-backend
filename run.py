@@ -783,7 +783,7 @@ class ProcessResults:
         model_types = ['auto_resp','ql1_resp','robust_resp']
         u = Utilities()
         print('****** RESULTS CSV START ********')
-        with open(os.path.join(rg_constants.RESULTS_FILES,'all_results'+'.csv'), mode='w') as resfile:
+        with open(os.path.join(rg_constants.RESULTS_FILES,'all_results1'+'.csv'), mode='w') as resfile:
             res_writer = csv.writer(resfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             res_writer.writerow(['agent1_model_type','agent2_model_type','agent1_type','agent2_type','agent1_speed','agent2_speed','agent1_traj_length','agent2_traj_length','dist_gap'])
             succ_ct = None
@@ -877,11 +877,11 @@ class ProcessResults:
                                 strat_types[dist_gap][m_type] = 0
                             else:
                                 strat_types[dist_gap][m_type] += 1
-                            '''
+                            
                             if float(ag1_speed) > 0.8:
                                 analytics_obj = UniWeberAnalytics('769')
                                 analytics_obj.animate_scene([[(x[1],x[2]) for x in ag1_traj],[(x[1],x[2]) for x in ag2_traj]],'parking_pullout')
-                            '''
+                            
                             '''
                             plt.plot([x[1] for x in ag1_traj],[x[2] for x in ag1_traj],'o')
                             plt.plot([x[1] for x in ag2_traj],[x[2] for x in ag2_traj],'x')
@@ -1015,17 +1015,18 @@ class ScenarioRunner():
             
                     
 if __name__ == '__main__':
+    '''
     rg_constants.DATASET = 'intersection_dataset'
     runner = ScenarioRunner(('synthetic','intersection_clearance'))
     runner.run_scene()
-    
-    
     '''
+    
+    
     res = ProcessResults()
     #res.visualization_only = ['1-2_1_20','1-3_1_10']
-    #res.visualization_only = ['1-2_1,0_20,0']
+    res.visualization_only = ['1-2_1,0_20,0']
     res.process_parking_pullout()
-    '''
+    
     
     
     #run_intersection_clearance(11,1, 2,1, 10)
