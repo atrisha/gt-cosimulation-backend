@@ -226,7 +226,7 @@ class Actions:
         
         if insert_into_db:
             parent_traj_id = None
-            conn = sqlite3.connect(rg_constants.get_rg_db_path(file_id))
+            conn = sqlite3.connect(os.path.join(rg_constants.ind_run_path, file_id + '.db'))
             c = conn.cursor()
             i_string = 'INSERT INTO TRAJECTORIES VALUES (?,?,?,?,?,?,?,?,?)'
             i_string_tj_mtdata = 'INSERT INTO TRAJECTORY_METADATA VALUES (?,?,?,?,?,?,?,?,?,?,?)'
@@ -246,10 +246,10 @@ class Actions:
                 c.executemany(i_string_tj_mtdata,traj_metadata)
                 print('agent trajectories inserted')           
             conn.commit()
-            conn.close()        
-            
-        return agent1_trajs, agent2_trajs
-    
+            conn.close()
+
+        return {'agent_1': agent1_trajs, 'agent_2': agent2_trajs}
+
     def insert_interaction_data(self):
         conn = sqlite3.connect('D:\\repeated_games_data\\intersection_dataset\\db_files\\right_turn_data.db')
         c = conn.cursor()

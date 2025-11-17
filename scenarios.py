@@ -37,6 +37,17 @@ def right_turn_interaction_scenarios():
             if row[0] not in exit_lane_entry_time:
                 exit_lane_entry_time[row[0]] = row[1]
         
+        directions = dict()
+        q_string = "select * from TRAJECTORY_MOVEMENTS WHERE TRAFFIC_SEGMENT_SEQ IS NOT NULL"
+        c.execute(q_string)
+        res = c.fetchall()
+        for row in res:
+            seg_seq = ast.literal_eval(row[-1])
+            org,dest = seg_seq[0].split('_')[1].upper(),seg_seq[-1].split('_')[1].upper()
+            if row[1] not in directions:
+                directions[row[1]] = constants.TASK_MAP['L_'+org+'_'+dest]
+        
+        
         q_string = "SELECT * from TRAJECTORIES_0"+str(file_id)+"_EXT ORDER BY TIME"
         c.execute(q_string)
         res = c.fetchall()
@@ -62,6 +73,9 @@ def right_turn_interaction_scenarios():
             el_ctr = Counter([x[1] for x in scenario_dict[k]])
             #print(k)
             for rtag in scenario_dict[k]:
+                if int(rtag[0]) not in directions or directions[int(rtag[0])] != 'RIGHT_TURN':
+                    continue
+                
                 if ((rtag[1] == 'rt_prep-turn_w' and el_ctr['rt_exec-turn_w']==0 and el_ctr['ln_s_-2']==0) or \
                     (rtag[1] == 'rt_exec-turn_w' and el_ctr['ln_s_-2']==0) or \
                     (rtag[1] == 'ln_w_4' and el_ctr['rt_prep-turn_w']==0 and el_ctr['rt_exec-turn_w']==0 and el_ctr['ln_s_-2']==0)):
@@ -183,7 +197,15 @@ def left_turn_interaction_scenarios():
         for row in res:
             if row[0] not in exit_lane_entry_time:
                 exit_lane_entry_time[row[0]] = row[1]
-        
+        directions = dict()
+        q_string = "select * from TRAJECTORY_MOVEMENTS WHERE TRAFFIC_SEGMENT_SEQ IS NOT NULL"
+        c.execute(q_string)
+        res = c.fetchall()
+        for row in res:
+            seg_seq = ast.literal_eval(row[-1])
+            org,dest = seg_seq[0].split('_')[1].upper(),seg_seq[-1].split('_')[1].upper()
+            if row[1] not in directions:
+                directions[row[1]] = constants.TASK_MAP['L_'+org+'_'+dest]
         
         q_string = "SELECT * from TRAJECTORIES_0"+str(file_id)+"_EXT ORDER BY TIME"
         c.execute(q_string)
@@ -203,13 +225,15 @@ def left_turn_interaction_scenarios():
         
         #print(scenario_dict.keys())
         for k in list(scenario_dict.keys()):
-            if k==110.7106:
+            if int(file_id) == 769 and k==90.924167:
                 _e = scenario_dict[k]
                 f=1
             #pedestrian_info = utils.setup_pedestrian_info(k)
             el_ctr = Counter([x[1] for x in scenario_dict[k]])
             #print(k)
             for rtag in scenario_dict[k]:
+                if int(rtag[0]) not in directions or directions[int(rtag[0])] != 'LEFT_TURN':
+                    continue
                 if ((rtag[1] == 'prep-turn_s' and el_ctr['prep-turn_s']==1 and el_ctr['exec-turn_s']==0) or \
                     (rtag[1] == 'exec-turn_s' and el_ctr['ln_w_-2']==0 and el_ctr['ln_w_-1']==0) or \
                     (rtag[1] == 'ln_s_1' and el_ctr['ln_s_1'] == 1 and el_ctr['prep-turn_s']==0 and el_ctr['exec-turn_s']==0) or\
@@ -325,10 +349,12 @@ def left_turn_interaction_scenarios():
         conn.close()
         print('Total',file_id, len(agent_entries))
         tot += len(agent_entries)
+        
         with open(rg_constants.SCENE_OUT_PATH, mode='a') as scene_file:
             sc_writer = csv.writer(scene_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             for entr in agent_entries:
                 sc_writer.writerow([file_id,'lt',entr[3],entr[0],entr[1],entr[2]])
+        
     print('grand total',tot)
     
     
@@ -796,3 +822,4 @@ if __name__ == '__main__':
     #remove_unneeded()
     #right_turn_interaction_inD_scenarios()
     left_turn_interaction_scenarios()
+    right_turn_interaction_scenarios()

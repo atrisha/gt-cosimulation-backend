@@ -78,7 +78,7 @@ class Utilities:
             return 1
         
     def progress_payoff_dist(self,dist,ag_type):
-        prog_util = min(dist / 100, 1) if ag_type == 'agent_2' else min(dist / 17, 1) 
+        prog_util = min(dist / 60, 1) if ag_type == 'agent_2' else min(dist / 17, 1) 
         return prog_util
         
     def combine_utils(self,prog_util,safe_util,thresh):

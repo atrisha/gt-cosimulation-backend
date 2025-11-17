@@ -10,8 +10,9 @@ from all_utils.utils import interpolate_track_info
 from motion_planners.planning_objects import VehicleState as OneshotRepoVehicleState
 import ast
 from planners.planning_objects import VehicleState, PedestrianState
+import shapely
 from shapely.ops import nearest_points
-from shapely.geometry import LineString, Point, MultiPoint
+from shapely.geometry import LineString, Point, MultiPoint, MultiLineString
 from planners.trajectory_planner import WaitTrajectoryConstraints, ProceedTrajectoryConstraints, PedestrianManeuverConstraints
 import math
 from operator import itemgetter
@@ -398,8 +399,8 @@ class ScenarioDef:
             cross_pts = LineString(self.agent1.waypoints).intersection(LineString(self.agent2.waypoints))
             if isinstance(cross_pts, MultiPoint):
                 cross_pts = list(cross_pts.geoms)[-1]
-            dist_to_cross_ag1 = LineString(self.agent1.waypoints).project(cross_pts)
-            dist_to_cross_ag2 = LineString(self.agent2.waypoints).project(cross_pts)
+            dist_to_cross_ag1 = cross_pts.distance(Point(self.agent1.waypoints[0]))
+            dist_to_cross_ag2 = cross_pts.distance(Point(self.agent2.waypoints[0]))
             '''
             plt.plot([x[0] for x in self.agent1.waypoints],[x[1] for x in self.agent1.waypoints],linestyle='-', marker='o',color='red')
             plt.plot([x[0] for x in self.agent2.waypoints],[x[1] for x in self.agent2.waypoints],linestyle='-', marker='x',color='blue')

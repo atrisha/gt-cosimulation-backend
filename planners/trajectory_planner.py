@@ -18,8 +18,16 @@ import random
 import itertools
 from collections import defaultdict
 import warnings
-import constants
-import all_utils.utils
+import sys
+import os
+# Add the game_theoretic_planner path to sys.path in a robust way
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Navigate to the workspaces directory and then to game_theoretic_planner
+workspaces_dir = os.path.dirname(os.path.dirname(current_dir))
+game_theoretic_planner_dir = os.path.join(workspaces_dir, 'game_theoretic_planner')
+if game_theoretic_planner_dir not in sys.path:
+    sys.path.append(game_theoretic_planner_dir)
+import all_utils
 import code_utils.utils as rg_utils
 from shapely.geometry import multipoint, point, linestring, Point, shape
 
